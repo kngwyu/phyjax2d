@@ -1,0 +1,46 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61", "setuptools-scm"]
+
+[project]
+name = "phyjax2d"
+authors = [{name = "Yuji Kanagawa", email = "yuji.kanagawa@oist.jp"}]
+description = "2D physics simulation by Jax"
+license = {text = "Apache2"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
+requires-python = ">= 3.10"
+dependencies = [
+    "chex >= 0.1.86",
+    "jax >= 0.4.27",
+]
+dynamic = ["version"]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.urls]
+homepage = "https://github.com/kngwyu/phyjax2d"
+bug-tracker = "https://github.com/kngwyu/phyjax2d"
+
+[tool.setuptools]
+include-package-data = true
+license-files = ["LICENSE"]
+
+[tool.setuptools.dynamic]
+version = {attr = "phyjax2d.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.isort]
+profile = "black"
