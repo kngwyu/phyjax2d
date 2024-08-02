@@ -38,4 +38,5 @@ def publish(session: nox.Session) -> None:
 @nox.session(reuse_venv=True, python=["3.10", "3.11", "3.12"])
 def tests(session: nox.Session) -> None:
     session.install("-e", ".")
+    session.install("pytest")
     session.run("pytest", "tests", *session.posargs)
