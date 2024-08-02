@@ -233,13 +233,13 @@ class Segment(Shape):
     ghost2: jax.Array
 
 
+# We need to treat each polygons (triangle, square, ...) separately
+# So this should be hidden from users
 @chex.dataclass
-class Polygon(Shape):
-    point1: jax.Array
-    point2: jax.Array
-    is_smooth: jax.Array
-    ghost1: jax.Array
-    ghost2: jax.Array
+class _Polygon(Shape):
+    points: jax.Array
+    normals: jax.Array
+    centroid: jax.Array
 
 
 @chex.dataclass
