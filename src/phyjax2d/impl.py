@@ -14,6 +14,8 @@ import jax
 import jax.numpy as jnp
 
 Self = Any
+T = TypeVar("T")
+TWO_PI = jnp.pi * 2
 
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
@@ -32,7 +34,19 @@ def normalize(
     return n, norm
 
 
-T = TypeVar("T")
+def _vmap_dot(xy1: jax.Array, xy2: jax.Array) -> jax.Array:
+    """Dot product between nested vectors"""
+    chex.assert_equal_shape((xy1, xy2))
+    orig_shape = xy1.shape
+    a = xy1.reshape(-1, orig_shape[-1])
+    b = xy2.reshape(-1, orig_shape[-1])
+    return jax.vmap(jnp.dot, in_axes=(0, 0))(a, b).reshape(*orig_shape[:-1])
+
+
+def _sv_cross(s: jax.Array, v: jax.Array) -> jax.Array:
+    """Cross product with scalar and vector"""
+    x, y = _get_xy(v)
+    return jnp.stack((y * -s, x * s), axis=-1)
 
 
 def empty(cls: type[T]) -> Callable[[], T]:
@@ -86,9 +100,6 @@ class PyTreeOps:
     def shape(self) -> Any:
         """For debugging"""
         return jax.tree_util.tree_map(lambda x: x.shape, self)
-
-
-TWO_PI = jnp.pi * 2
 
 
 def _axy(angle: jax.Array, xy: jax.Array) -> jax.Array:
@@ -207,56 +218,28 @@ class Circle(Shape):
 
 
 @chex.dataclass
-class State(PyTreeOps):
-    p: Position
-    v: Velocity
-    f: Force
-    is_active: jax.Array
-    label: jax.Array
-
-    @staticmethod
-    def empty() -> Self:
-        return State(
-            p=Position.zeros(0),
-            v=Velocity.zeros(0),
-            f=Force.zeros(0),
-            is_active=jnp.empty(0),
-            label=jnp.zeros(0),
-        )
-
-    @staticmethod
-    def zeros(n: int) -> Self:
-        return State(
-            p=Position.zeros(n),
-            v=Velocity.zeros(n),
-            f=Force.zeros(n),
-            is_active=jnp.ones(n, dtype=bool),
-            label=jnp.zeros(n, dtype=jnp.uint8),
-        )
-
-    def apply_force_global(self, point: jax.Array, force: jax.Array) -> Self:
-        chex.assert_equal_shape((self.f.xy, force))
-        xy = self.f.xy + force
-        angle = self.f.angle + jnp.cross(point - self.p.xy, force)
-        f = replace(self.f, xy=xy, angle=angle)
-        return replace(self, f=f)
-
-    def apply_force_local(self, point: jax.Array, force: jax.Array) -> Self:
-        chex.assert_equal_shape((self.p.xy, point))
-        point = self.p.transform(point)
-        return self.apply_force_global(point, self.p.rotate(force))
-
-    def batch_size(self) -> int:
-        return self.p.batch_size()
+class Capsule(Shape):
+    point1: jax.Array
+    point2: jax.Array
+    radius: jax.Array
 
 
-def get_relative_angle(s_a: State, s_b: State) -> jax.Array:
-    a2b = jax.vmap(jnp.subtract, in_axes=(None, 0))(s_b.p.xy, s_a.p.xy)
-    a2b_x, a2b_y = _get_xy(a2b)
-    a2b_angle = jnp.arctan2(a2b_y, a2b_x)  # (N_A, N_B)
-    a_angle = jnp.expand_dims(s_a.p.angle, axis=1)
-    # Subtract 0.5𝛑 because our angle starts from 0.5𝛑 (90 degree)
-    return (a2b_angle - a_angle + TWO_PI * 3 - jnp.pi * 0.5) % TWO_PI
+@chex.dataclass
+class Segment(Shape):
+    point1: jax.Array
+    point2: jax.Array
+    is_smooth: jax.Array
+    ghost1: jax.Array
+    ghost2: jax.Array
+
+
+@chex.dataclass
+class Polygon(Shape):
+    point1: jax.Array
+    point2: jax.Array
+    is_smooth: jax.Array
+    ghost1: jax.Array
+    ghost2: jax.Array
 
 
 @chex.dataclass
@@ -312,36 +295,6 @@ class ContactHelper:
     allow_bounce: jax.Array
 
 
-@chex.dataclass
-class VelocitySolver:
-    v1: jax.Array
-    v2: jax.Array
-    pn: jax.Array
-    pt: jax.Array
-    contact: jax.Array
-
-    def update(self, new_contact: jax.Array) -> Self:
-        continuing_contact = jnp.logical_and(self.contact, new_contact)
-        pn = jnp.where(continuing_contact, self.pn, 0.0)
-        pt = jnp.where(continuing_contact, self.pt, 0.0)
-        return replace(self, pn=pn, pt=pt, contact=new_contact)
-
-
-def _vmap_dot(xy1: jax.Array, xy2: jax.Array) -> jax.Array:
-    """Dot product between nested vectors"""
-    chex.assert_equal_shape((xy1, xy2))
-    orig_shape = xy1.shape
-    a = xy1.reshape(-1, orig_shape[-1])
-    b = xy2.reshape(-1, orig_shape[-1])
-    return jax.vmap(jnp.dot, in_axes=(0, 0))(a, b).reshape(*orig_shape[:-1])
-
-
-def _sv_cross(s: jax.Array, v: jax.Array) -> jax.Array:
-    """Cross product with scalar and vector"""
-    x, y = _get_xy(v)
-    return jnp.stack((y * -s, x * s), axis=-1)
-
-
 def _effective_mass(
     inv_mass: jax.Array,
     inv_moment: jax.Array,
@@ -350,22 +303,6 @@ def _effective_mass(
 ) -> jax.Array:
     rn2 = jnp.cross(r, n) ** 2
     return inv_mass + inv_moment * rn2
-
-
-@chex.dataclass
-class Capsule(Shape):
-    point1: jax.Array
-    point2: jax.Array
-    radius: jax.Array
-
-
-@chex.dataclass
-class Segment(Shape):
-    point1: jax.Array
-    point2: jax.Array
-    is_smooth: jax.Array
-    ghost1: jax.Array
-    ghost2: jax.Array
 
 
 @jax.vmap
@@ -466,6 +403,59 @@ def _segment_to_circle_impl(
 
 
 _ALL_SHAPES = ["circle", "static_circle", "capsule", "static_capsule", "segment"]
+
+
+@chex.dataclass
+class State(PyTreeOps):
+    p: Position
+    v: Velocity
+    f: Force
+    is_active: jax.Array
+    label: jax.Array
+
+    @staticmethod
+    def empty() -> Self:
+        return State(
+            p=Position.zeros(0),
+            v=Velocity.zeros(0),
+            f=Force.zeros(0),
+            is_active=jnp.empty(0),
+            label=jnp.zeros(0),
+        )
+
+    @staticmethod
+    def zeros(n: int) -> Self:
+        return State(
+            p=Position.zeros(n),
+            v=Velocity.zeros(n),
+            f=Force.zeros(n),
+            is_active=jnp.ones(n, dtype=bool),
+            label=jnp.zeros(n, dtype=jnp.uint8),
+        )
+
+    def apply_force_global(self, point: jax.Array, force: jax.Array) -> Self:
+        chex.assert_equal_shape((self.f.xy, force))
+        xy = self.f.xy + force
+        angle = self.f.angle + jnp.cross(point - self.p.xy, force)
+        f = replace(self.f, xy=xy, angle=angle)
+        return replace(self, f=f)
+
+    def apply_force_local(self, point: jax.Array, force: jax.Array) -> Self:
+        chex.assert_equal_shape((self.p.xy, point))
+        point = self.p.transform(point)
+        return self.apply_force_global(point, self.p.rotate(force))
+
+    def batch_size(self) -> int:
+        return self.p.batch_size()
+
+
+def get_relative_angle(s_a: State, s_b: State) -> jax.Array:
+    a2b = jax.vmap(jnp.subtract, in_axes=(None, 0))(s_b.p.xy, s_a.p.xy)
+    a2b_x, a2b_y = _get_xy(a2b)
+    a2b_angle = jnp.arctan2(a2b_y, a2b_x)  # (N_A, N_B)
+    a_angle = jnp.expand_dims(s_a.p.angle, axis=1)
+    # Subtract 0.5𝛑 because our angle starts from 0.5𝛑 (90 degree)
+    return (a2b_angle - a_angle + TWO_PI * 3 - jnp.pi * 0.5) % TWO_PI
 
 
 @chex.dataclass
@@ -867,6 +857,21 @@ def init_contact_helper(
         local_anchor2=p2.inv_rotate(r2),
         allow_bounce=vn <= -space.bounce_threshold,
     )
+
+
+@chex.dataclass
+class VelocitySolver:
+    v1: jax.Array
+    v2: jax.Array
+    pn: jax.Array
+    pt: jax.Array
+    contact: jax.Array
+
+    def update(self, new_contact: jax.Array) -> Self:
+        continuing_contact = jnp.logical_and(self.contact, new_contact)
+        pn = jnp.where(continuing_contact, self.pn, 0.0)
+        pt = jnp.where(continuing_contact, self.pt, 0.0)
+        return replace(self, pn=pn, pt=pt, contact=new_contact)
 
 
 @jax.vmap
