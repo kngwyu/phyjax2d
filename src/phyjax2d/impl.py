@@ -30,7 +30,7 @@ def normalize(
     axis: Sequence[int] | int | None = None,
 ) -> tuple[jax.Array, jax.Array]:
     norm = jnp.linalg.norm(x, axis=axis)
-    n = x / jnp.clip(norm, min=1e-6)
+    n = x / jnp.clip(norm, a_min=1e-6)
     return n, norm
 
 
@@ -792,13 +792,13 @@ def update_velocity(space: Space, shape: Shape, state: State) -> State:
     v_ang = state.v.angle + f_ang * shape.inv_moment() * space.dt
     v_xy = jnp.clip(
         v_xy * space.linear_damping,
-        max=space.max_velocity,
-        min=-space.max_velocity,
+        a_max=space.max_velocity,
+        a_min=-space.max_velocity,
     )
     v_ang = jnp.clip(
         v_ang * space.angular_damping,
-        max=space.max_angular_velocity,
-        min=-space.max_angular_velocity,
+        a_max=space.max_angular_velocity,
+        a_min=-space.max_angular_velocity,
     )
     # Damping: dv/dt + vc = 0 -> v(t) = v0 * exp(-tc)
     # v(t + dt) = v0 * exp(-tc - dtc) = v0 * exp(-tc) * exp(-dtc) = v(t)exp(-dtc)
@@ -834,7 +834,7 @@ def init_contact_helper(
     tangent = jnp.stack((-ny, nx), axis=-1)
     kt1 = _effective_mass(inv_mass1, inv_moment1, r1, tangent)
     kt2 = _effective_mass(inv_mass2, inv_moment2, r2, tangent)
-    clipped_p = jnp.clip(space.allowed_penetration - contact.penetration, max=0.0)
+    clipped_p = jnp.clip(space.allowed_penetration - contact.penetration, a_max=0.0)
     v_bias = -space.bias_factor / space.dt * clipped_p
     # k_normal, k_tangent, and v_bias should have (N(N-1)/2, N_contacts) shape
     chex.assert_equal_shape((contact.friction, kn1, kn2, kt1, kt2, v_bias))
@@ -913,7 +913,7 @@ def apply_velocity_normal(
     dpt = -helper.mass_tangent * vt
     # Clamp friction impulse
     max_pt = contact.friction * solver.pn
-    pt = jnp.clip(solver.pt + dpt, min=-max_pt, max=max_pt)
+    pt = jnp.clip(solver.pt + dpt, a_min=-max_pt, a_max=max_pt)
     dpt_clamped = helper.tangent * (pt - solver.pt)
     # Velocity update by contact tangent
     dvt1 = _axy(
@@ -929,7 +929,7 @@ def apply_velocity_normal(
     vn = _vmap_dot(dv, contact.normal)
     dpn = helper.mass_normal * (-vn + helper.v_bias)
     # Accumulate and clamp impulse
-    pn = jnp.clip(solver.pn + dpn, min=0.0)
+    pn = jnp.clip(solver.pn + dpn, a_min=0.0)
     dpn_clamped = contact.normal * (pn - solver.pn)
     # Velocity update by contact normal
     dvn1 = _axy(
@@ -1009,8 +1009,8 @@ def correct_position(
     separation = jnp.dot(ga2_ga1, contact.normal) - contact.penetration
     c = jnp.clip(
         bias_factor * (separation + linear_slop),
-        min=-max_linear_correction,
-        max=0.0,
+        a_min=-max_linear_correction,
+        a_max=0.0,
     )
     kn1 = _effective_mass(helper.inv_mass1, helper.inv_moment1, r1, contact.normal)
     kn2 = _effective_mass(helper.inv_mass2, helper.inv_moment2, r2, contact.normal)

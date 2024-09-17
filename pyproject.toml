@@ -20,7 +20,7 @@ classifiers = [
 requires-python = ">= 3.10"
 dependencies = [
     "chex >= 0.1.86",
-    "jax >= 0.4.27",
+    "jax >= 0.4.25",
 ]
 dynamic = ["version"]
 
