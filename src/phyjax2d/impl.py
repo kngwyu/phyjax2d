@@ -506,6 +506,17 @@ class StateDict:
             obj = replace(o, **{q: obj})
         return obj
 
+    def nested_ops(self, query: str, fn: Callable[[Any], Any]) -> Self:
+        queries = query.split(".")
+        objects = [self]
+        for q in queries[:-1]:
+            objects.append(objects[-1][q])  # type: ignore
+        value = fn(objects[-1][queries[-1]])
+        obj = replace(objects[-1], **{queries[-1]: value})
+        for o, q in zip(objects[-2::-1], queries[-2::-1]):
+            obj = replace(o, **{q: obj})
+        return obj
+
 
 @chex.dataclass
 class ShapeDict:
@@ -777,6 +788,9 @@ class Space:
             pt=jnp.zeros(n),
             contact=jnp.zeros(n, dtype=bool),
         )
+
+    def zeros_state(self) -> StateDict:
+        return self.shaped.zeros_state()
 
 
 def update_velocity(space: Space, shape: Shape, state: State) -> State:
