@@ -49,5 +49,6 @@ profile = "black"
 
 [tool.uv]
 dev-dependencies = [
+    "jax[cuda12]>=0.4.33",
     "pytest>=8.3.3",
 ]

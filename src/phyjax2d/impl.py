@@ -754,6 +754,21 @@ class Space:
             *contacts,
         )
 
+    def check_contacts_selected(
+        self, stated: StateDict, selector: list[tuple[str, str]]
+    ) -> Contact:
+        contacts = []
+        for selected_contact in selector:
+            fn = _CONTACT_FUNCTIONS[selected_contact]
+            ci = self._ci.get(selected_contact, None)
+            if ci is not None:
+                contact = fn(ci, stated)
+                contacts.append(contact)
+        return jax.tree_util.tree_map(
+            lambda *args: jnp.concatenate(args, axis=0),
+            *contacts,
+        )
+
     def n_possible_contacts(self) -> int:
         n = 0
         for n1, n2 in _CONTACT_FUNCTIONS.keys():

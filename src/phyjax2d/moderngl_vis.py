@@ -13,6 +13,7 @@ import moderngl_window as mglw
 import numpy as np
 from moderngl_window.context import headless
 from numpy.typing import NDArray
+
 from phyjax2d.impl import Circle, Segment, Space, State, StateDict
 from phyjax2d.utils import Color
 
