@@ -21,10 +21,15 @@ requires-python = ">= 3.10"
 dependencies = [
     "chex >= 0.1.86",
     "jax >= 0.4.25",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+vis = [
     "moderngl >= 5.6",
     "moderngl-window >= 2.4",
 ]
-dynamic = ["version"]
+cuda12 = ["jax[cuda12]"]
 
 [project.readme]
 file = "README.md"
@@ -49,6 +54,5 @@ profile = "black"
 
 [tool.uv]
 dev-dependencies = [
-    "jax[cuda12]>=0.4.33",
     "pytest>=8.3.3",
 ]
