@@ -30,7 +30,7 @@ def normalize(
     axis: Sequence[int] | int | None = None,
 ) -> tuple[jax.Array, jax.Array]:
     norm = jnp.linalg.norm(x, axis=axis)
-    n = x / jnp.clip(norm, a_min=1e-6)
+    n = x / jnp.clip(norm, min=1e-6)
     return n, norm
 
 
@@ -233,10 +233,8 @@ class Segment(Shape):
     ghost2: jax.Array
 
 
-# We need to treat each polygons (triangle, square, ...) separately
-# So this should be hidden from users
 @chex.dataclass
-class _Polygon(Shape):
+class Polygon(Shape):
     points: jax.Array
     normals: jax.Array
     centroid: jax.Array
@@ -402,7 +400,15 @@ def _segment_to_circle_impl(
     )
 
 
-_ALL_SHAPES = ["circle", "static_circle", "capsule", "static_capsule", "segment"]
+_ALL_SHAPES = [
+    "circle",
+    "static_circle",
+    "capsule",
+    "static_capsule",
+    "segment",
+    "triangle",
+    "static_triangle",
+]
 
 
 @chex.dataclass
@@ -458,6 +464,17 @@ def get_relative_angle(s_a: State, s_b: State) -> jax.Array:
     return (a2b_angle - a_angle + TWO_PI * 3 - jnp.pi * 0.5) % TWO_PI
 
 
+def _offset(sd: ShapeDict | StateDict, name: str) -> int:
+    total = 0
+    for key in _ALL_SHAPES:
+        if key == name:
+            return total
+        s = sd[key]  # type: ignore
+        if s is not None:
+            total += s.batch_size()
+    raise RuntimeError("Unreachable")
+
+
 @chex.dataclass
 class StateDict:
     circle: State = dataclasses.field(default_factory=State.empty)
@@ -465,6 +482,8 @@ class StateDict:
     segment: State = dataclasses.field(default_factory=State.empty)
     capsule: State = dataclasses.field(default_factory=State.empty)
     static_capsule: State = dataclasses.field(default_factory=State.empty)
+    triangle: State = dataclasses.field(default_factory=State.empty)
+    static_triangle: State = dataclasses.field(default_factory=State.empty)
 
     def concat(self) -> Self:
         states = [s for s in self.values() if s.batch_size() > 0]  # type: ignore
@@ -472,28 +491,19 @@ class StateDict:
             lambda *args: jnp.concatenate(args, axis=0), *states
         )
 
-    def _get(self, name: str, statec: State) -> State:
-        state = self[name]  # type: ignore
-        if state.batch_size() == 0:
-            return state  # empty state
-        else:
-            start = _offset(self, name)
-            end = start + state.p.batch_size()
-            return statec.get_slice(jnp.arange(start, end))
-
     def update(self, statec: State) -> Self:
-        circle = self._get("circle", statec)
-        static_circle = self._get("static_circle", statec)
-        segment = self._get("segment", statec)
-        capsule = self._get("capsule", statec)
-        static_capsule = self._get("static_capsule", statec)
-        return self.__class__(
-            circle=circle,
-            static_circle=static_circle,
-            segment=segment,
-            capsule=capsule,
-            static_capsule=static_capsule,
-        )
+
+        def _get(name: str) -> State:
+            state = self[name]  # type: ignore
+            if state.batch_size() == 0:
+                return state  # empty state
+            else:
+                start = _offset(self, name)
+                end = start + state.p.batch_size()
+                return statec.get_slice(jnp.arange(start, end))
+
+        sd = {key: _get(key) for key in _ALL_SHAPES}
+        return self.__class__(**sd)
 
     def nested_replace(self, query: str, value: Any) -> Self:
         """Convenient method for nested replace"""
@@ -525,6 +535,8 @@ class ShapeDict:
     capsule: Capsule = dataclasses.field(default_factory=empty(Capsule))
     static_capsule: Capsule = dataclasses.field(default_factory=empty(Capsule))
     segment: Segment = dataclasses.field(default_factory=empty(Segment))
+    triangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    static_triangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
 
     def concat(self) -> Shape:
         shapes = [
@@ -543,24 +555,17 @@ class ShapeDict:
         segment = then(self.segment, lambda s: State.zeros(len(s.mass)))
         capsule = then(self.capsule, lambda s: State.zeros(len(s.mass)))
         static_capsule = then(self.capsule, lambda s: State.zeros(len(s.mass)))
+        triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
+        static_triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
         return StateDict(
             circle=circle,
             static_circle=static_circle,
             segment=segment,
             capsule=capsule,
             static_capsule=static_capsule,
+            triangle=triangle,
+            static_triangle=static_triangle,
         )
-
-
-def _offset(sd: ShapeDict | StateDict, name: str) -> int:
-    total = 0
-    for key in _ALL_SHAPES:
-        if key == name:
-            return total
-        s = sd[key]  # type: ignore
-        if s is not None:
-            total += s.batch_size()
-    raise RuntimeError("Unreachable")
 
 
 S1 = TypeVar("S1", bound=Shape)
@@ -654,6 +659,23 @@ def _capsule_to_circle(
     )
 
 
+def _polygon_to_circle(
+    ci: ContactIndices[Polygon, Circle],
+    stated: StateDict,
+) -> Contact:
+    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.capsule.p)
+    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p)
+    is_active1 = stated.capsule.is_active[ci.index1]
+    is_active2 = stated.circle.is_active[ci.index2]
+    return _capsule_to_circle_impl(
+        ci.shape1,
+        ci.shape2,
+        pos1,
+        pos2,
+        jnp.logical_and(is_active1, is_active2),
+    )
+
+
 def _segment_to_circle(
     ci: ContactIndices[Segment, Circle],
     stated: StateDict,
@@ -677,6 +699,8 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("circle", "static_circle"): _circle_to_static_circle,
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
+    ("triangle", "circle"): _polygon_to_circle,
+    # ("polygon", "polygon"): _polygon_to_polygon,
 }
 
 
@@ -821,13 +845,13 @@ def update_velocity(space: Space, shape: Shape, state: State) -> State:
     v_ang = state.v.angle + f_ang * shape.inv_moment() * space.dt
     v_xy = jnp.clip(
         v_xy * space.linear_damping,
-        a_max=space.max_velocity,
-        a_min=-space.max_velocity,
+        min=-space.max_velocity,
+        max=space.max_velocity,
     )
     v_ang = jnp.clip(
         v_ang * space.angular_damping,
-        a_max=space.max_angular_velocity,
-        a_min=-space.max_angular_velocity,
+        min=-space.max_angular_velocity,
+        max=space.max_angular_velocity,
     )
     # Damping: dv/dt + vc = 0 -> v(t) = v0 * exp(-tc)
     # v(t + dt) = v0 * exp(-tc - dtc) = v0 * exp(-tc) * exp(-dtc) = v(t)exp(-dtc)
@@ -863,7 +887,7 @@ def init_contact_helper(
     tangent = jnp.stack((-ny, nx), axis=-1)
     kt1 = _effective_mass(inv_mass1, inv_moment1, r1, tangent)
     kt2 = _effective_mass(inv_mass2, inv_moment2, r2, tangent)
-    clipped_p = jnp.clip(space.allowed_penetration - contact.penetration, a_max=0.0)
+    clipped_p = jnp.clip(space.allowed_penetration - contact.penetration, max=0.0)
     v_bias = -space.bias_factor / space.dt * clipped_p
     # k_normal, k_tangent, and v_bias should have (N(N-1)/2, N_contacts) shape
     chex.assert_equal_shape((contact.friction, kn1, kn2, kt1, kt2, v_bias))
@@ -942,7 +966,7 @@ def apply_velocity_normal(
     dpt = -helper.mass_tangent * vt
     # Clamp friction impulse
     max_pt = contact.friction * solver.pn
-    pt = jnp.clip(solver.pt + dpt, a_min=-max_pt, a_max=max_pt)
+    pt = jnp.clip(solver.pt + dpt, min=-max_pt, max=max_pt)
     dpt_clamped = helper.tangent * (pt - solver.pt)
     # Velocity update by contact tangent
     dvt1 = _axy(
@@ -958,7 +982,7 @@ def apply_velocity_normal(
     vn = _vmap_dot(dv, contact.normal)
     dpn = helper.mass_normal * (-vn + helper.v_bias)
     # Accumulate and clamp impulse
-    pn = jnp.clip(solver.pn + dpn, a_min=0.0)
+    pn = jnp.clip(solver.pn + dpn, min=0.0)
     dpn_clamped = contact.normal * (pn - solver.pn)
     # Velocity update by contact normal
     dvn1 = _axy(
@@ -1038,8 +1062,8 @@ def correct_position(
     separation = jnp.dot(ga2_ga1, contact.normal) - contact.penetration
     c = jnp.clip(
         bias_factor * (separation + linear_slop),
-        a_min=-max_linear_correction,
-        a_max=0.0,
+        min=-max_linear_correction,
+        max=0.0,
     )
     kn1 = _effective_mass(helper.inv_mass1, helper.inv_moment1, r1, contact.normal)
     kn2 = _effective_mass(helper.inv_mass2, helper.inv_moment2, r2, contact.normal)
