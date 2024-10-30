@@ -233,6 +233,7 @@ class Segment(Shape):
     ghost2: jax.Array
 
 
+# !!!CONVEX!!! Polygon
 @chex.dataclass
 class Polygon(Shape):
     points: jax.Array
@@ -398,6 +399,22 @@ def _segment_to_circle_impl(
         elasticity=(a.elasticity + b.elasticity) * 0.5,
         friction=(a.friction + b.friction) * 0.5,
     )
+
+
+@jax.vmap
+def _polygon_to_circle_impl(
+    a: Polygon,
+    b: Circle,
+    a_pos: Position,
+    b_pos: Position,
+    isactive: jax.Array,
+) -> Contact:
+    # Move circle pos to segment's coordinates
+    b_pos_in_a = a_pos.inv_transform(b_pos.xy)  # (M, 2)
+    # Find the minimum separating edge
+    # Polygons' vertices should have (N, P, 2) shape
+    b_pos_extended = jnp.expand_dims(b_pos_in_a, axis=1)
+    separation = jnp.dot(a.normals, (b_pos_extended - a.vertices))
 
 
 _ALL_SHAPES = [
@@ -612,16 +629,15 @@ def _pair_ci(shape1: Shape, shape2: Shape) -> ContactIndices:
 
 
 def _circle_to_circle(ci: ContactIndices[Circle, Circle], stated: StateDict) -> Contact:
-    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.circle.p)
-    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p)
-    is_active1 = stated.circle.is_active[ci.index1]
-    is_active2 = stated.circle.is_active[ci.index2]
     return _circle_to_circle_impl(
         ci.shape1,
         ci.shape2,
-        pos1,
-        pos2,
-        jnp.logical_and(is_active1, is_active2),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.circle.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p),
+        jnp.logical_and(
+            stated.circle.is_active[ci.index1],
+            stated.circle.is_active[ci.index2],
+        ),
     )
 
 
@@ -629,16 +645,15 @@ def _circle_to_static_circle(
     ci: ContactIndices[Circle, Circle],
     stated: StateDict,
 ) -> Contact:
-    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.circle.p)
-    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.static_circle.p)
-    is_active1 = stated.circle.is_active[ci.index1]
-    is_active2 = stated.static_circle.is_active[ci.index2]
     return _circle_to_circle_impl(
         ci.shape1,
         ci.shape2,
-        pos1,
-        pos2,
-        jnp.logical_and(is_active1, is_active2),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.circle.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.static_circle.p),
+        jnp.logical_and(
+            stated.circle.is_active[ci.index1],
+            stated.static_circle.is_active[ci.index2],
+        ),
     )
 
 
@@ -646,33 +661,15 @@ def _capsule_to_circle(
     ci: ContactIndices[Capsule, Circle],
     stated: StateDict,
 ) -> Contact:
-    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.capsule.p)
-    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p)
-    is_active1 = stated.capsule.is_active[ci.index1]
-    is_active2 = stated.circle.is_active[ci.index2]
     return _capsule_to_circle_impl(
         ci.shape1,
         ci.shape2,
-        pos1,
-        pos2,
-        jnp.logical_and(is_active1, is_active2),
-    )
-
-
-def _polygon_to_circle(
-    ci: ContactIndices[Polygon, Circle],
-    stated: StateDict,
-) -> Contact:
-    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.capsule.p)
-    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p)
-    is_active1 = stated.capsule.is_active[ci.index1]
-    is_active2 = stated.circle.is_active[ci.index2]
-    return _capsule_to_circle_impl(
-        ci.shape1,
-        ci.shape2,
-        pos1,
-        pos2,
-        jnp.logical_and(is_active1, is_active2),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.capsule.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p),
+        jnp.logical_and(
+            stated.capsule.is_active[ci.index1],
+            stated.circle.is_active[ci.index2],
+        ),
     )
 
 
@@ -680,16 +677,30 @@ def _segment_to_circle(
     ci: ContactIndices[Segment, Circle],
     stated: StateDict,
 ) -> Contact:
-    pos1 = jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.segment.p)
-    pos2 = jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p)
-    is_active1 = stated.segment.is_active[ci.index1]
-    is_active2 = stated.circle.is_active[ci.index2]
     return _segment_to_circle_impl(
         ci.shape1,
         ci.shape2,
-        pos1,
-        pos2,
-        jnp.logical_and(is_active1, is_active2),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.segment.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p),
+        jnp.logical_and(
+            stated.segment.is_active[ci.index1], stated.circle.is_active[ci.index2]
+        ),
+    )
+
+
+def _triangle_to_circle(
+    ci: ContactIndices[Segment, Circle],
+    stated: StateDict,
+) -> Contact:
+    return _polygon_to_circle_impl(
+        ci.shape1,
+        ci.shape2,
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.segment.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p),
+        jnp.logical_and(
+            stated.segment.is_active[ci.index1],
+            stated.circle.is_active[ci.index2],
+        ),
     )
 
 
@@ -699,8 +710,7 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("circle", "static_circle"): _circle_to_static_circle,
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
-    ("triangle", "circle"): _polygon_to_circle,
-    # ("polygon", "polygon"): _polygon_to_polygon,
+    ("triangle", "circle"): _triangle_to_circle,
 }
 
 

@@ -14,6 +14,7 @@ from jax._src.numpy.lax_numpy import TypeVar
 from phyjax2d.impl import (
     Capsule,
     Circle,
+    Polygon,
     Segment,
     Shape,
     ShapeDict,
@@ -219,6 +220,28 @@ class SpaceBuilder:
             rgba=jnp.array(rgba).reshape(1, 4),
         )
         self.segments.append(segment)
+
+    def add_polygon(
+        self,
+        *,
+        points: list[Vec2d],
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        rgba: Color = _BLACK,
+    ) -> None:
+        _check_params_positive(
+            friction=friction,
+            elasticity=elasticity,
+        )
+        # Compute centroid
+        center = Vec2d(0.0, 0.0)
+        area = 0.0
+        origin = points[0]
+        for a, b in zip(points, points[1:]):
+            e1 = a - origin
+            e2 = b - origin
+            area_i = a.cross(b) * 0.5
+            center += (area_i / 3) * (e1 + e2)
 
     def add_chain_segments(
         self,
