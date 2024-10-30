@@ -38,5 +38,3 @@ def test_circle_fall_jit(space: Space) -> None:
         sd, _, _ = jit_step(space, sd, vs)
     assert sd.circle.p.xy[0][1] > 0.0
     assert sd.circle.p.xy[1][1] > 0.0
-    print(sd.circle.p.xy)
-    assert False
