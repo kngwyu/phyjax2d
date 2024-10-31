@@ -26,6 +26,7 @@ from phyjax2d.impl import (
 from phyjax2d.vec2d import Vec2d
 
 Self = Any
+_N_MAX_POLYGON_VERTICES = 6
 
 
 class Color(NamedTuple):
@@ -225,6 +226,7 @@ class SpaceBuilder:
         self,
         *,
         points: list[Vec2d],
+        radius: float = 0.0,
         friction: float = 0.8,
         elasticity: float = 0.8,
         rgba: Color = _BLACK,
@@ -233,15 +235,41 @@ class SpaceBuilder:
             friction=friction,
             elasticity=elasticity,
         )
+        # Need to have at least three points
+        n = len(points)
+        if n < 3:
+            raise ValueError("Polygon needs at least three vertices")
+        elif n > _N_MAX_POLYGON_VERTICES:
+            raise ValueError(f"Too many vertices {n} for polygon")
+        # Check convexity
+        signs = []
+        for a, b, c in zip(points, points[1:], points[2:]):
+            a2b = b - a
+            b2c = c - b
+            cross = a2b.cross(b2c)
+            if cross == 0:
+                raise ValueError(f"Redundant points in polygon: {a, b, c}")
+            signs.append(cross)
+        signs_np = np.array(signs)
+        if np.all(signs_np == -1):
+            pass
+        elif np.all(signs_np == 1):
+            pass
+        else:
+            raise ValueError("Given polygon is not convex!")
+
         # Compute centroid
         center = Vec2d(0.0, 0.0)
-        area = 0.0
+        total_area = 0.0
         origin = points[0]
         for a, b in zip(points, points[1:]):
             e1 = a - origin
             e2 = b - origin
-            area_i = a.cross(b) * 0.5
-            center += (area_i / 3) * (e1 + e2)
+            area = a.cross(b) * 0.5
+            center += (e1 + e2) * (area / 3)
+            total_area += area
+
+        center = (center / total_area) + origin
 
     def add_chain_segments(
         self,

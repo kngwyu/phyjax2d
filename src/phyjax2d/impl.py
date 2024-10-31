@@ -233,12 +233,11 @@ class Segment(Shape):
     ghost2: jax.Array
 
 
-# !!!CONVEX!!! Polygon
 @chex.dataclass
 class Polygon(Shape):
     points: jax.Array
+    radius: jax.Array
     normals: jax.Array
-    centroid: jax.Array
 
 
 @chex.dataclass
