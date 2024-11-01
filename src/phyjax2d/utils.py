@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
+from collections import defaultdict
 from typing import Any, Callable, NamedTuple
 
 import jax
@@ -26,7 +27,7 @@ from phyjax2d.impl import (
 from phyjax2d.vec2d import Vec2d
 
 Self = Any
-_N_MAX_POLYGON_VERTICES = 6
+_N_MAX_POLYGON_VERTICES = 4
 
 
 class Color(NamedTuple):
@@ -97,6 +98,23 @@ def _check_params_positive(friction: float, **kwargs) -> None:
     for key, value in kwargs.items():
         assert value > 0.0, f"Invalid value for {key}: {value}"
 
+def _compute_centroid(points: list[Vec2d]) -> float:
+    # Compute centroid
+    center = Vec2d(0.0, 0.0)
+    total_area = 0.0
+    origin = points[0]
+    for a, b in zip(points[1:], points[2:]):
+        e1 = a - origin
+        e2 = b - origin
+        area = e1.cross(e2) * 0.5
+        center += (e1 + e2) * (area / 3)
+        total_area += area
+    return (center / total_area) + origin
+
+
+def _make_listdd() -> dict[int, list]:
+    return defaultdict(list)
+
 
 @dataclasses.dataclass
 class SpaceBuilder:
@@ -111,6 +129,10 @@ class SpaceBuilder:
     capsules: list[Capsule] = dataclasses.field(default_factory=list)
     static_capsules: list[Capsule] = dataclasses.field(default_factory=list)
     segments: list[Segment] = dataclasses.field(default_factory=list)
+    polygons: dict[int, list[Polygon]] = dataclasses.field(default_factory=_make_listdd)
+    static_polygons: dict[int, list[Polygon]] = dataclasses.field(
+        default_factory=_make_listdd
+    )
     dt: float = 0.1
     linear_damping: float = 0.9
     angular_damping: float = 0.9
@@ -242,34 +264,35 @@ class SpaceBuilder:
         elif n > _N_MAX_POLYGON_VERTICES:
             raise ValueError(f"Too many vertices {n} for polygon")
         # Check convexity
-        signs = []
+        cross_list = []
         for a, b, c in zip(points, points[1:], points[2:]):
             a2b = b - a
             b2c = c - b
             cross = a2b.cross(b2c)
             if cross == 0:
                 raise ValueError(f"Redundant points in polygon: {a, b, c}")
-            signs.append(cross)
-        signs_np = np.array(signs)
+            cross_list.append(cross)
+        signs = np.sign(cross_list)
         if np.all(signs_np == -1):
-            pass
-        elif np.all(signs_np == 1):
-            pass
-        else:
+            # Flip arrays to make them counter clock wise
+            points.reverse()
+        elif not np.all(signs_np == 1):
             raise ValueError("Given polygon is not convex!")
 
-        # Compute centroid
-        center = Vec2d(0.0, 0.0)
-        total_area = 0.0
-        origin = points[0]
-        for a, b in zip(points, points[1:]):
-            e1 = a - origin
-            e2 = b - origin
-            area = a.cross(b) * 0.5
-            center += (e1 + e2) * (area / 3)
-            total_area += area
 
-        center = (center / total_area) + origin
+   def _add_polygon_internal(
+        self,
+        *,
+        points: list[Vec2d],
+        radius: float = 0.0,
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        rgba: Color = _BLACK,
+    ) -> None:
+        # Compute normal
+        normals = []
+        n = points
+        for i in range()
 
     def add_chain_segments(
         self,
