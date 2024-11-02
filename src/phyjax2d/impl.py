@@ -238,6 +238,7 @@ class Polygon(Shape):
     points: jax.Array
     radius: jax.Array
     normals: jax.Array
+    centroid: jax.Array
 
 
 @chex.dataclass

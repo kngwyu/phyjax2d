@@ -1,10 +1,11 @@
-""" Utilities to construct physics simulation """
+"""Utilities to construct physics simulation"""
 
 from __future__ import annotations
 
 import dataclasses
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from typing import Any, Callable, NamedTuple
 
 import jax
@@ -79,6 +80,47 @@ def _capsule_mass(
     return jnp.array([mass]), jnp.array([moment])
 
 
+def _polygon_mass(
+    points: list[Vec2d],
+    normals: list[Vec2d],
+    radius: float,
+    density: float,
+) -> tuple[jax.Array, jax.Array]:
+    vertices = deepcopy(points)
+    n = len(vertices)
+    # If the polygon is rounded, approximate mass by pushing out vertices
+    if radius > 0:
+        radius_sqrt2 = radius * (2**0.5)
+        for i in range(n):
+            j = (i + 1) % n
+            n1 = normals[i]
+            n2 = normals[j]
+            mid = (n1 + n2).normalized()
+            vertices[i] += radius_sqrt2 * mid
+
+    r = vertices[0]
+    total_area = 0.0
+    center = 0.0
+    moment = 0.0
+    for v1, v2 in zip(vertices[1:], vertices[2:]):
+        e1 = v1 - r
+        e2 = v2 - r
+        d = e1.cross(e2)
+        area = d * 0.5
+        total_area += area
+        center += (e1 + e2) * (area / 3)
+        intx2 = e1.x**2 + e2.x**2 + e1.x * e2.x
+        inty2 = e1.y**2 + e2.y**2 + e1.y * e2.y
+        moment += d * (intx2 + inty2) / 12
+
+    mass = density * total_area
+    center /= total_area
+    center_r = center + r
+    moment_shift = center_r.dot(center_r) - center.dot(center)
+    moment = (density * moment) + mass * moment_shift
+    return jnp.array([mass]), jnp.array([moment])
+
+
 S = TypeVar("S", bound=Shape)
 
 
@@ -98,7 +140,8 @@ def _check_params_positive(friction: float, **kwargs) -> None:
     for key, value in kwargs.items():
         assert value > 0.0, f"Invalid value for {key}: {value}"
 
-def _compute_centroid(points: list[Vec2d]) -> float:
+
+def _compute_centroid(points: list[Vec2d]) -> Vec2d:
     # Compute centroid
     center = Vec2d(0.0, 0.0)
     total_area = 0.0
@@ -251,6 +294,8 @@ class SpaceBuilder:
         radius: float = 0.0,
         friction: float = 0.8,
         elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
         rgba: Color = _BLACK,
     ) -> None:
         _check_params_positive(
@@ -278,21 +323,82 @@ class SpaceBuilder:
             points.reverse()
         elif not np.all(signs_np == 1):
             raise ValueError("Given polygon is not convex!")
+        self._add_polygon_internal(
+            points=points,
+            centroid=_compute_centroid(points),
+            radius=radius,
+            friction=friction,
+            elasticity=elasticity,
+            density=density,
+            is_static=is_static,
+            rgba=rgba,
+        )
 
-
-   def _add_polygon_internal(
+    def add_square(
         self,
         *,
-        points: list[Vec2d],
+        width: float,
+        height: float,
         radius: float = 0.0,
         friction: float = 0.8,
         elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
+        rgba: Color = _BLACK,
+    ) -> None:
+        a = Vec2d(width / 2, height / 2)
+        b = Vec2d(-width / 2, height / 2)
+        c = Vec2d(-width / 2, -height / 2)
+        d = Vec2d(-width / 2, -height / 2)
+        self._add_polygon_internal(
+            points=[a, b, c, d],
+            centroid=Vec2d(0.0, 0.0),
+            radius=radius,
+            friction=friction,
+            elasticity=elasticity,
+            density=density,
+            is_static=is_static,
+            rgba=rgba,
+        )
+
+    def _add_polygon_internal(
+        self,
+        *,
+        points: list[Vec2d],
+        centroid: Vec2d,
+        radius: float = 0.0,
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
         rgba: Color = _BLACK,
     ) -> None:
         # Compute normal
         normals = []
         n = points
-        for i in range()
+
+        for p1, p2 in zip(points, points[1:] + points[:1]):
+            edge = p2 - p1
+            if edge.dot(edge) < 1e-6:
+                raise ValueError(f"Edge is too short in polygon: {p1} and {p2}")
+            # Rotate the edge 90 degree right and normalize it
+            normals.append(edge.perpendicular_right().normalized())
+
+        mass, moment = _polygon_mass(points, normals, radius, density)
+        polygon = Polygon(
+            points=jnp.array(points),
+            normals=jnp.array(normals),
+            radius=jnp.array([radius]),
+            mass=mass,
+            moment=moment,
+            elasticity=jnp.array([elasticity]),
+            friction=jnp.array([friction]),
+            rgba=jnp.array(color).reshape(1, 4),
+        )
+        if is_static:
+            self.static_polygons[n].append(polygon)
+        else:
+            self.polygons[n].append(polygon)
 
     def add_chain_segments(
         self,
