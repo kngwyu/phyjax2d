@@ -55,4 +55,5 @@ profile = "black"
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.3.3",
+    "pymunk >= 6.0",
 ]

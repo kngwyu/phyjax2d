@@ -538,7 +538,7 @@ class StateDict:
         objects = [self]
         for q in queries[:-1]:
             objects.append(objects[-1][q])  # type: ignore
-        value = fn(objects[-1][queries[-1]])
+        value = fn(objects[-1][queries[-1]])  # type: ignore
         obj = replace(objects[-1], **{queries[-1]: value})
         for o, q in zip(objects[-2::-1], queries[-2::-1]):
             obj = replace(o, **{q: obj})
@@ -689,7 +689,7 @@ def _segment_to_circle(
 
 
 def _triangle_to_circle(
-    ci: ContactIndices[Segment, Circle],
+    ci: ContactIndices[Polygon, Circle],
     stated: StateDict,
 ) -> Contact:
     return _polygon_to_circle_impl(
