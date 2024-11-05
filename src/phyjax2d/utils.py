@@ -28,7 +28,7 @@ from phyjax2d.impl import (
 from phyjax2d.vec2d import Vec2d
 
 Self = Any
-_N_MAX_POLYGON_VERTICES = 4
+_N_MAX_POLYGON_VERTICES = 6
 
 
 class Color(NamedTuple):
@@ -100,7 +100,7 @@ def _polygon_mass(
 
     r = vertices[0]
     total_area = 0.0
-    center = 0.0
+    center = Vec2d(0.0, 0.0)
     moment = 0.0
     for v1, v2 in zip(vertices[1:], vertices[2:]):
         e1 = v1 - r
@@ -318,10 +318,10 @@ class SpaceBuilder:
                 raise ValueError(f"Redundant points in polygon: {a, b, c}")
             cross_list.append(cross)
         signs = np.sign(cross_list)
-        if np.all(signs_np == -1):
+        if np.all(signs == -1):
             # Flip arrays to make them counter clock wise
             points.reverse()
-        elif not np.all(signs_np == 1):
+        elif not np.all(signs == 1):
             raise ValueError("Given polygon is not convex!")
         self._add_polygon_internal(
             points=points,
@@ -349,7 +349,7 @@ class SpaceBuilder:
         a = Vec2d(width / 2, height / 2)
         b = Vec2d(-width / 2, height / 2)
         c = Vec2d(-width / 2, -height / 2)
-        d = Vec2d(-width / 2, -height / 2)
+        d = Vec2d(width / 2, -height / 2)
         self._add_polygon_internal(
             points=[a, b, c, d],
             centroid=Vec2d(0.0, 0.0),
@@ -375,7 +375,6 @@ class SpaceBuilder:
     ) -> None:
         # Compute normal
         normals = []
-        n = points
 
         for p1, p2 in zip(points, points[1:] + points[:1]):
             edge = p2 - p1
@@ -388,13 +387,15 @@ class SpaceBuilder:
         polygon = Polygon(
             points=jnp.array(points),
             normals=jnp.array(normals),
+            centroid=jnp.array(centroid),
             radius=jnp.array([radius]),
             mass=mass,
             moment=moment,
             elasticity=jnp.array([elasticity]),
             friction=jnp.array([friction]),
-            rgba=jnp.array(color).reshape(1, 4),
+            rgba=jnp.array(rgba).reshape(1, 4),
         )
+        n = len(points)
         if is_static:
             self.static_polygons[n].append(polygon)
         else:
@@ -519,6 +520,7 @@ def circle_overlap(
     radius: jax.Array | float,
 ) -> jax.Array:
     # Circle overlap
+    overlap = jnp.array(False)
     if stated.circle is not None and shaped.circle is not None:
         cpos = stated.circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
@@ -526,8 +528,6 @@ def circle_overlap(
         penetration = shaped.circle.radius + radius - dist
         has_overlap = jnp.logical_and(stated.circle.is_active, penetration >= 0)
         overlap = jnp.any(has_overlap)
-    else:
-        overlap = jnp.array(False)
 
     # Static_circle overlap
     if stated.static_circle is not None and shaped.static_circle is not None:

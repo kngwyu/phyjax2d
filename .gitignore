@@ -9,3 +9,4 @@
 .venv/
 .virtual_documents/
 uv.lock
+pyrightconfig.json
