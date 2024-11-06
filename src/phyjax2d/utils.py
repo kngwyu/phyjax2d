@@ -441,10 +441,17 @@ class SpaceBuilder:
             segment=_concat_or(self.segments, empty(Segment)),
             capsule=_concat_or(self.capsules, empty(Capsule)),
             static_capsule=_concat_or(self.static_capsules, empty(Capsule)),
+            triangle=_concat_or(self.polygons[3], empty(Polygon)),
+            static_triangle=_concat_or(self.static_polygons[3], empty(Polygon)),
+            quadrangle=_concat_or(self.polygons[4], empty(Polygon)),
+            static_quadrangle=_concat_or(self.static_polygons[4], empty(Polygon)),
+            pentagon=_concat_or(self.polygons[5], empty(Polygon)),
+            static_pentagon=_concat_or(self.static_polygons[5], empty(Polygon)),
+            hexagon=_concat_or(self.polygons[6], empty(Polygon)),
+            static_hexagon=_concat_or(self.static_polygons[6], empty(Polygon)),
         )
-        dt = self.dt
-        linear_damping = jnp.exp(-dt * self.linear_damping).item()
-        angular_damping = jnp.exp(-dt * self.angular_damping).item()
+        linear_damping = jnp.exp(-self.dt * self.linear_damping).item()
+        angular_damping = jnp.exp(-self.dt * self.angular_damping).item()
         max_velocity = jnp.inf if self.max_velocity is None else self.max_velocity
         max_angular_velocity = (
             jnp.inf if self.max_angular_velocity is None else self.max_angular_velocity

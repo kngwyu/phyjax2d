@@ -425,6 +425,12 @@ _ALL_SHAPES = [
     "segment",
     "triangle",
     "static_triangle",
+    "quadrangle",
+    "static_quadrangle",
+    "pentagon",
+    "static_pentagon",
+    "hexagon",
+    "static_hexagon",
 ]
 
 
@@ -501,6 +507,12 @@ class StateDict:
     static_capsule: State = dataclasses.field(default_factory=State.empty)
     triangle: State = dataclasses.field(default_factory=State.empty)
     static_triangle: State = dataclasses.field(default_factory=State.empty)
+    quadrangle: State = dataclasses.field(default_factory=State.empty)
+    static_quadrangle: State = dataclasses.field(default_factory=State.empty)
+    pentagon: State = dataclasses.field(default_factory=State.empty)
+    static_pentagon: State = dataclasses.field(default_factory=State.empty)
+    hexagon: State = dataclasses.field(default_factory=State.empty)
+    static_hexagon: State = dataclasses.field(default_factory=State.empty)
 
     def concat(self) -> Self:
         states = [s for s in self.values() if s.batch_size() > 0]  # type: ignore
@@ -554,6 +566,12 @@ class ShapeDict:
     segment: Segment = dataclasses.field(default_factory=empty(Segment))
     triangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
     static_triangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    quadrangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    static_quadrangle: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    pentagon: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    static_pentagon: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    hexagon: Polygon = dataclasses.field(default_factory=empty(Polygon))
+    static_hexagon: Polygon = dataclasses.field(default_factory=empty(Polygon))
 
     def concat(self) -> Shape:
         shapes = [
@@ -574,6 +592,12 @@ class ShapeDict:
         static_capsule = then(self.capsule, lambda s: State.zeros(len(s.mass)))
         triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
         static_triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
+        quadrangle = then(self.quadrangle, lambda s: State.zeros(len(s.mass)))
+        static_quadrangle = then(self.quadrangle, lambda s: State.zeros(len(s.mass)))
+        pentagon = then(self.pentagon, lambda s: State.zeros(len(s.mass)))
+        static_pentagon = then(self.pentagon, lambda s: State.zeros(len(s.mass)))
+        hexagon = then(self.hexagon, lambda s: State.zeros(len(s.mass)))
+        static_hexagon = then(self.hexagon, lambda s: State.zeros(len(s.mass)))
         return StateDict(
             circle=circle,
             static_circle=static_circle,
@@ -582,6 +606,12 @@ class ShapeDict:
             static_capsule=static_capsule,
             triangle=triangle,
             static_triangle=static_triangle,
+            quadrangle=quadrangle,
+            static_quadrangle=static_quadrangle,
+            pentagon=pentagon,
+            static_pentagon=static_pentagon,
+            hexagon=hexagon,
+            static_hexagon=static_hexagon,
         )
 
 
