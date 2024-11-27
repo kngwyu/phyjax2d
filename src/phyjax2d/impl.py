@@ -409,12 +409,24 @@ def _polygon_to_circle_impl(
     b_pos: Position,
     isactive: jax.Array,
 ) -> Contact:
+    n_vertices = a.points.shape[0]
     # Move circle pos to segment's coordinates
-    b_pos_in_a = a_pos.inv_transform(b_pos.xy)  # (M, 2)
-    # Find the minimum separating edge
-    # Polygons' vertices should have (N, P, 2) shape
-    b_pos_extended = jnp.expand_dims(b_pos_in_a, axis=1)
-    separation = jnp.dot(a.normals, (b_pos_extended - a.vertices))
+    c = a_pos.inv_transform(b_pos.xy)
+    c_expanded = jnp.expand_dims(c, axis=0)  #  (1, 2)
+    sep = _vmap_dot(a.normals, (c_expanded - a.points))
+    i1 = jnp.argmin(sep)
+    i2 = (i1 + 1) % n_vertices
+    v1 = a.points[i1]
+    v2 = a.points[i2]
+    u1 = jnp.dot(c - v1, v2 - v1)
+    u2 = jnp.dot(c - v2, v1 - v2)
+
+    def if_c_is_out(c: jax.Array, v: jax.Array):
+        a2b_normal, dist = normalize(c - v)
+        sep = jnp.dot(c - v, a2b_normal)
+        ca = v + a.radius * a2b_normal
+        cb = c + b.radius * a2b_normal
+
 
 
 _ALL_SHAPES = [
@@ -718,7 +730,7 @@ def _segment_to_circle(
     )
 
 
-def _triangle_to_circle(
+def _polygon_to_circle(
     ci: ContactIndices[Polygon, Circle],
     stated: StateDict,
 ) -> Contact:
@@ -733,6 +745,12 @@ def _triangle_to_circle(
         ),
     )
 
+def _polygon_to_polygon(
+    ci: ContactIndices[Polygon, Polygon],
+    stated: StateDict,
+) -> Contact:
+    assert False
+
 
 _CONTACT_FN = Callable[[ContactIndices, StateDict], Contact]
 _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
@@ -740,7 +758,8 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("circle", "static_circle"): _circle_to_static_circle,
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
-    ("triangle", "circle"): _triangle_to_circle,
+    ("triangle", "circle"): _polygon_to_circle,
+    ("triangle", "triangle"): _polygon_to_polygon,
 }
 
 
@@ -801,7 +820,7 @@ class Space:
                     index2=ci.index2 + offset2,
                 )
                 ci_slided_list.append(ci_slided)
-        self._ci_total = jax.tree_util.tree_map(
+        self._ci_total = jax.tree.map(
             lambda *args: jnp.concatenate(args, axis=0),
             *ci_slided_list,
         )

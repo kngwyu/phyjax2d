@@ -55,7 +55,7 @@ def _mass_and_moment(
     is_static: bool = False,
 ) -> tuple[jax.Array, jax.Array]:
     if is_static:
-        return jnp.array([jnp.inf]), jnp.array([jnp.inf])
+        return jnp.array(jnp.inf), jnp.array(jnp.inf)
     else:
         return jnp.array(mass), jnp.array(moment)
 
@@ -64,7 +64,7 @@ def _circle_mass(radius: float, density: float) -> tuple[jax.Array, jax.Array]:
     rr = radius**2
     mass = density * jnp.pi * rr
     moment = 0.5 * mass * rr
-    return jnp.array([mass]), jnp.array([moment])
+    return jnp.array(mass), jnp.array(moment)
 
 
 def _capsule_mass(
@@ -77,7 +77,7 @@ def _capsule_mass(
     circle_moment = 0.5 * (rr + ll)
     box_moment = (4 * rr + ll) / 12
     moment = mass * (circle_moment + box_moment)
-    return jnp.array([mass]), jnp.array([moment])
+    return jnp.array(mass), jnp.array(moment)
 
 
 def _polygon_mass(
@@ -118,15 +118,15 @@ def _polygon_mass(
     center_r = center + r
     moment_shift = center_r.dot(center_r) - center.dot(center)
     moment = (density * moment) + mass * moment_shift
-    return jnp.array([mass]), jnp.array([moment])
+    return jnp.array(mass), jnp.array(moment)
 
 
 S = TypeVar("S", bound=Shape)
 
 
-def _concat_or(sl: list[S], default_fn: Callable[[], S]) -> S:
+def _stack_or(sl: list[S], default_fn: Callable[[], S]) -> S:
     if len(sl) > 0:
-        return jax.tree_util.tree_map(lambda *args: jnp.concatenate(args, axis=0), *sl)
+        return jax.tree.map(lambda *args: jnp.stack(args), *sl)
     else:
         return default_fn()
 
@@ -207,12 +207,12 @@ class SpaceBuilder:
         )
         mass, moment = _mass_and_moment(*_circle_mass(radius, density), is_static)
         circle = Circle(
-            radius=jnp.array([radius]),
+            radius=jnp.array(radius),
             mass=mass,
             moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(color).reshape(1, 4),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(color),
         )
         if is_static:
             self.static_circles.append(circle)
@@ -242,14 +242,14 @@ class SpaceBuilder:
             is_static,
         )
         capsule = Capsule(
-            point1=jnp.array(p1).reshape(1, 2),
-            point2=jnp.array(p2).reshape(1, 2),
-            radius=jnp.array([radius]),
+            point1=jnp.array(p1),
+            point2=jnp.array(p2),
+            radius=jnp.array(radius),
             mass=mass,
             moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(color).reshape(1, 4),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(color),
         )
         if is_static:
             self.static_capsules.append(capsule)
@@ -269,21 +269,20 @@ class SpaceBuilder:
             friction=friction,
             elasticity=elasticity,
         )
-        mass, moment = jnp.array([jnp.inf]), jnp.array([jnp.inf])
-        point1 = jnp.array(p1).reshape(1, 2)
-        point2 = jnp.array(p2).reshape(1, 2)
+        point1 = jnp.array(p1)
+        point2 = jnp.array(p2)
         segment = Segment(
-            point1=jnp.array(p1).reshape(1, 2),
-            point2=jnp.array(p2).reshape(1, 2),
-            is_smooth=jnp.array([False]),
+            point1=point1,
+            point2=point2,
+            is_smooth=jnp.array(False),
             # Fake ghosts
             ghost1=point1,
             ghost2=point2,
-            mass=mass,
-            moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(rgba).reshape(1, 4),
+            mass=jnp.array(jnp.inf),
+            moment=jnp.array(jnp.inf),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(rgba),
         )
         self.segments.append(segment)
 
@@ -388,12 +387,12 @@ class SpaceBuilder:
             points=jnp.array(points),
             normals=jnp.array(normals),
             centroid=jnp.array(centroid),
-            radius=jnp.array([radius]),
+            radius=jnp.array(radius),
             mass=mass,
             moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(rgba).reshape(1, 4),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(rgba),
         )
         n = len(points)
         if is_static:
@@ -413,42 +412,41 @@ class SpaceBuilder:
             friction=friction,
             elasticity=elasticity,
         )
-        mass, moment = jnp.array([jnp.inf]), jnp.array([jnp.inf])
         n_points = len(chain_points)
         for i in range(n_points):
             g1 = chain_points[i - 1][0]
             p1, p2 = chain_points[i]
             g2 = chain_points[(i + 1) % n_points][1]
             segment = Segment(
-                point1=jnp.array(p1).reshape(1, 2),
-                point2=jnp.array(p2).reshape(1, 2),
-                is_smooth=jnp.array([True]),
+                point1=jnp.array(p1),
+                point2=jnp.array(p2),
+                is_smooth=jnp.array(True),
                 # Fake ghosts
-                ghost1=jnp.array(g1).reshape(1, 2),
-                ghost2=jnp.array(g2).reshape(1, 2),
-                mass=mass,
-                moment=moment,
-                elasticity=jnp.array([elasticity]),
-                friction=jnp.array([friction]),
-                rgba=jnp.array(rgba).reshape(1, 4),
+                ghost1=jnp.array(g1),
+                ghost2=jnp.array(g2),
+                mass=jnp.array(jnp.inf),
+                moment=jnp.array(jnp.inf),
+                elasticity=jnp.array(elasticity),
+                friction=jnp.array(friction),
+                rgba=jnp.array(rgba),
             )
             self.segments.append(segment)
 
     def build(self) -> Space:
         shaped = ShapeDict(
-            circle=_concat_or(self.circles, empty(Circle)),
-            static_circle=_concat_or(self.static_circles, empty(Circle)),
-            segment=_concat_or(self.segments, empty(Segment)),
-            capsule=_concat_or(self.capsules, empty(Capsule)),
-            static_capsule=_concat_or(self.static_capsules, empty(Capsule)),
-            triangle=_concat_or(self.polygons[3], empty(Polygon)),
-            static_triangle=_concat_or(self.static_polygons[3], empty(Polygon)),
-            quadrangle=_concat_or(self.polygons[4], empty(Polygon)),
-            static_quadrangle=_concat_or(self.static_polygons[4], empty(Polygon)),
-            pentagon=_concat_or(self.polygons[5], empty(Polygon)),
-            static_pentagon=_concat_or(self.static_polygons[5], empty(Polygon)),
-            hexagon=_concat_or(self.polygons[6], empty(Polygon)),
-            static_hexagon=_concat_or(self.static_polygons[6], empty(Polygon)),
+            circle=_stack_or(self.circles, empty(Circle)),
+            static_circle=_stack_or(self.static_circles, empty(Circle)),
+            segment=_stack_or(self.segments, empty(Segment)),
+            capsule=_stack_or(self.capsules, empty(Capsule)),
+            static_capsule=_stack_or(self.static_capsules, empty(Capsule)),
+            triangle=_stack_or(self.polygons[3], empty(Polygon)),
+            static_triangle=_stack_or(self.static_polygons[3], empty(Polygon)),
+            quadrangle=_stack_or(self.polygons[4], empty(Polygon)),
+            static_quadrangle=_stack_or(self.static_polygons[4], empty(Polygon)),
+            pentagon=_stack_or(self.polygons[5], empty(Polygon)),
+            static_pentagon=_stack_or(self.static_polygons[5], empty(Polygon)),
+            hexagon=_stack_or(self.polygons[6], empty(Polygon)),
+            static_hexagon=_stack_or(self.static_polygons[6], empty(Polygon)),
         )
         linear_damping = jnp.exp(-self.dt * self.linear_damping).item()
         angular_damping = jnp.exp(-self.dt * self.angular_damping).item()
