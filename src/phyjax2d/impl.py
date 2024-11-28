@@ -182,6 +182,9 @@ class Position(_PositionLike, PyTreeOps):
     def inv_transform(self, xy: jax.Array) -> jax.Array:
         return self.inv_rotate(xy - self.xy)
 
+    def to_origin(self) -> Self:
+        return replace(self, xy=jnp.zeros_like(self.xy))
+
 
 @chex.dataclass
 class Shape(PyTreeOps):
@@ -334,8 +337,7 @@ def _capsule_to_circle_impl(
     a_contact = pa + a2b_normal * a.radius
     b_contact = pb - a2b_normal * b.radius
     pos = a_pos.transform((a_contact + b_contact) * 0.5)
-    xy_zeros = jnp.zeros_like(b_pos.xy)
-    a2b_normal_rotated = replace(a_pos, xy=xy_zeros).transform(a2b_normal)
+    a2b_normal_rotated = a_pos.to_origin().transform(a2b_normal)
     # Filter penetration
     return Contact(
         pos=pos,
@@ -376,8 +378,6 @@ def _segment_to_circle_impl(
     a_contact = pa
     b_contact = pb - a2b_normal * b.radius
     pos = a_pos.transform((a_contact + b_contact) * 0.5)
-    xy_zeros = jnp.zeros_like(b_pos.xy)
-    a2b_normal_rotated = replace(a_pos, xy=xy_zeros).transform(a2b_normal)
     # Filter penetration
     collidable = jnp.dot(_right_perp(edge), pb - p1) >= 0.0
     not_in_voronoi = jnp.logical_or(
@@ -394,7 +394,7 @@ def _segment_to_circle_impl(
     )
     return Contact(
         pos=pos,
-        normal=a2b_normal_rotated,
+        normal=a_pos.to_origin().transform(a2b_normal),
         penetration=jnp.where(is_penetration_possible, penetration, -1.0),
         elasticity=(a.elasticity + b.elasticity) * 0.5,
         friction=(a.friction + b.friction) * 0.5,
@@ -413,20 +413,49 @@ def _polygon_to_circle_impl(
     # Move circle pos to segment's coordinates
     c = a_pos.inv_transform(b_pos.xy)
     c_expanded = jnp.expand_dims(c, axis=0)  #  (1, 2)
-    sep = _vmap_dot(a.normals, (c_expanded - a.points))
-    i1 = jnp.argmin(sep)
+    separation = _vmap_dot(a.normals, (c_expanded - a.points))
+    i1 = jnp.argmin(separation)
     i2 = (i1 + 1) % n_vertices
     v1 = a.points[i1]
     v2 = a.points[i2]
     u1 = jnp.dot(c - v1, v2 - v1)
     u2 = jnp.dot(c - v2, v1 - v2)
 
-    def if_c_is_out(c: jax.Array, v: jax.Array):
+    def if_c_is_out() -> Contact:
+        v = jax.lax.select(u1 < 0.0, v1, v2)
         a2b_normal, dist = normalize(c - v)
-        sep = jnp.dot(c - v, a2b_normal)
         ca = v + a.radius * a2b_normal
-        cb = c + b.radius * a2b_normal
+        cb = c - b.radius * a2b_normal
+        pos_a = (ca + cb) * 0.5
+        penetration = a.radius + b.radius - dist
+        return Contact(
+            pos=pos_a + a_pos.xy,
+            normal=a_pos.to_origin().transform(a2b_normal),
+            penetration=jnp.where(isactive, penetration, -1.0),
+            elasticity=(a.elasticity + b.elasticity) * 0.5,
+            friction=(a.friction + b.friction) * 0.5,
+        )
 
+    def if_c_is_in() -> Contact:
+        a2b_normal = a.normals[i1]
+        ca = c + a.radius - jnp.dot(c - v1, a2b_normal) * a2b_normal
+        cb = c - b.radius * a2b_normal
+        pos_a = (ca + cb) * 0.5
+        penetration = a.radius + b.radius - separation
+        return Contact(
+            pos=pos_a + a_pos.xy,
+            normal=a_pos.to_origin().transform(a2b_normal),
+            penetration=jnp.where(isactive, penetration, -1.0),
+            elasticity=(a.elasticity + b.elasticity) * 0.5,
+            friction=(a.friction + b.friction) * 0.5,
+        )
+
+    is_out = jnp.logical_or(u1 < 0.0, u2 < 0.0)
+    return jax.lax.cond(
+        jnp.logical_and(is_out, separation > 1e-6),
+        if_c_is_out,
+        if_c_is_in,
+    )
 
 
 _ALL_SHAPES = [
@@ -533,7 +562,6 @@ class StateDict:
         )
 
     def update(self, statec: State) -> Self:
-
         def _get(name: str) -> State:
             state = self[name]  # type: ignore
             if state.batch_size() == 0:
@@ -587,7 +615,9 @@ class ShapeDict:
 
     def concat(self) -> Shape:
         shapes = [
-            s.to_shape() for s in self.values() if s.batch_size() > 0  # type: ignore
+            s.to_shape()
+            for s in self.values()
+            if s.batch_size() > 0  # type: ignore
         ]
         return jax.tree_util.tree_map(
             lambda *args: jnp.concatenate(args, axis=0), *shapes
@@ -744,6 +774,7 @@ def _polygon_to_circle(
             stated.circle.is_active[ci.index2],
         ),
     )
+
 
 def _polygon_to_polygon(
     ci: ContactIndices[Polygon, Polygon],
