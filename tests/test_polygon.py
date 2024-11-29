@@ -1,8 +1,40 @@
 import chex
 import jax.numpy as jnp
 import pymunk
+import pytest
 
-from phyjax2d import SpaceBuilder, Vec2d
+from phyjax2d import Space, SpaceBuilder, Vec2d
+
+
+@pytest.fixture
+def space() -> Space:
+    builder = SpaceBuilder(gravity=(0.0, 0.0))
+
+    builder.add_circle(radius=2.0)
+    builder.add_circle(radius=2.0)
+    builder.add_polygon(points=[Vec2d(2.0, 0.0), Vec2d(0.0, 2.0), Vec2d(0.0, 0.0)])
+    builder.add_polygon(
+        points=[Vec2d(-1.0, 0.0), Vec2d(-3.0, 0.0), Vec2d(-2.0, -2.0)],
+        radius=0.1,
+    )
+    return builder.build()
+
+
+def test_triangle_to_circle(space: Space) -> None:
+    sd = space.zeros_state().nested_replace(
+        "circle.p.xy",
+        jnp.array([[2.4, 2.4], [-2.0, -4.05]]),
+    )
+    contact = space.check_contacts_selected(sd, [("triangle", "circle")])
+    has_contact = contact.penetration >= 0
+    chex.assert_trees_all_close(has_contact, jnp.array([True, False, False, True]))
+    sd = sd.nested_replace(
+        "circle.p.xy",
+        jnp.array([[2.42, 2.42], [-2.0, -4.11]]),
+    )
+    contact = space.check_contacts_selected(sd, [("triangle", "circle")])
+    has_contact = contact.penetration >= 0
+    chex.assert_trees_all_close(has_contact, jnp.array([False, False, False, False]))
 
 
 def test_add_triangle() -> None:

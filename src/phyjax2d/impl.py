@@ -411,15 +411,15 @@ def _polygon_to_circle_impl(
 ) -> Contact:
     n_vertices = a.points.shape[0]
     # Move circle pos to segment's coordinates
-    c = a_pos.inv_transform(b_pos.xy)
-    c_expanded = jnp.expand_dims(c, axis=0)  #  (1, 2)
-    separation = _vmap_dot(a.normals, (c_expanded - a.points))
-    i1 = jnp.argmin(separation)
+    c = a_pos.inv_transform(b_pos.xy)  # (1, 2)
+    separation = _vmap_dot(a.normals, (c - a.points))
+    max_sep = jnp.max(separation)
+    i1 = jnp.argmax(separation)
     i2 = (i1 + 1) % n_vertices
     v1 = a.points[i1]
     v2 = a.points[i2]
-    u1 = jnp.dot(c - v1, v2 - v1)
-    u2 = jnp.dot(c - v2, v1 - v2)
+    u1 = jnp.squeeze(jnp.dot(c - v1, v2 - v1))  # Convert to scalar
+    u2 = jnp.squeeze(jnp.dot(c - v2, v1 - v2))
 
     def if_c_is_out() -> Contact:
         v = jax.lax.select(u1 < 0.0, v1, v2)
@@ -441,7 +441,7 @@ def _polygon_to_circle_impl(
         ca = c + a.radius - jnp.dot(c - v1, a2b_normal) * a2b_normal
         cb = c - b.radius * a2b_normal
         pos_a = (ca + cb) * 0.5
-        penetration = a.radius + b.radius - separation
+        penetration = a.radius + b.radius - max_sep
         return Contact(
             pos=pos_a + a_pos.xy,
             normal=a_pos.to_origin().transform(a2b_normal),
@@ -452,7 +452,7 @@ def _polygon_to_circle_impl(
 
     is_out = jnp.logical_or(u1 < 0.0, u2 < 0.0)
     return jax.lax.cond(
-        jnp.logical_and(is_out, separation > 1e-6),
+        jnp.logical_and(is_out, max_sep > 1e-6),
         if_c_is_out,
         if_c_is_in,
     )
@@ -763,14 +763,17 @@ def _segment_to_circle(
 def _polygon_to_circle(
     ci: ContactIndices[Polygon, Circle],
     stated: StateDict,
+    *,
+    key: str,
 ) -> Contact:
+    polygon = stated[key]  # type: ignore
     return _polygon_to_circle_impl(
         ci.shape1,
         ci.shape2,
-        jax.tree_util.tree_map(lambda arr: arr[ci.index1], stated.segment.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], polygon.p),
         jax.tree_util.tree_map(lambda arr: arr[ci.index2], stated.circle.p),
         jnp.logical_and(
-            stated.segment.is_active[ci.index1],
+            polygon.is_active[ci.index1],
             stated.circle.is_active[ci.index2],
         ),
     )
@@ -779,6 +782,9 @@ def _polygon_to_circle(
 def _polygon_to_polygon(
     ci: ContactIndices[Polygon, Polygon],
     stated: StateDict,
+    *,
+    key1: str,
+    key2: str,
 ) -> Contact:
     assert False
 
@@ -789,8 +795,12 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("circle", "static_circle"): _circle_to_static_circle,
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
-    ("triangle", "circle"): _polygon_to_circle,
-    ("triangle", "triangle"): _polygon_to_polygon,
+    ("triangle", "circle"): functools.partial(_polygon_to_circle, key="triangle"),
+    ("triangle", "triangle"): functools.partial(
+        _polygon_to_polygon,
+        key1="triangle",
+        key2="triangle",
+    ),
 }
 
 
