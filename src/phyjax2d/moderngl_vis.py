@@ -5,7 +5,8 @@ Currently, only supports circles and lines.
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar
+from collections.abc import Callable
+from typing import ClassVar
 
 import jax.numpy as jnp
 import moderngl as mgl
@@ -13,9 +14,7 @@ import moderngl_window as mglw
 import numpy as np
 from moderngl_window.context import headless
 from numpy.typing import NDArray
-
-from phyjax2d.impl import Circle, Segment, Space, State, StateDict
-from phyjax2d.utils import Color
+from phyjax2d import Circle, Segment, Space, State, StateDict
 
 NOWHERE: float = -1000.0
 
@@ -61,32 +60,50 @@ _LINE_GEOMETRY_SHADER = """
 layout (lines) in;
 layout (triangle_strip, max_vertices = 4) out;
 uniform float width;
+out float g_len;
+out float g_u;
+out float g_v;
 void main() {
     vec2 a = gl_in[0].gl_Position.xy;
     vec2 b = gl_in[1].gl_Position.xy;
     vec2 a2b = b - a;
     vec2 a2left = vec2(-a2b.y, a2b.x) / length(a2b) * width;
-
+    float len = length(a2b) * 0.5;
     vec4 positions[4] = vec4[4](
-        vec4(a - a2left, 0.0, 1.0),
         vec4(a + a2left, 0.0, 1.0),
-        vec4(b - a2left, 0.0, 1.0),
-        vec4(b + a2left, 0.0, 1.0)
+        vec4(a - a2left, 0.0, 1.0),
+        vec4(b + a2left, 0.0, 1.0),
+        vec4(b - a2left, 0.0, 1.0)
     );
+    float gus[4] = float[4](width, -width, width, -width);
+    float gvs[4] = float[4](len, len, -len, -len);
     for (int i = 0; i < 4; ++i) {
+        g_len = len;
+        g_u = gus[i];
+        g_v = gvs[i];
         gl_Position = positions[i];
         EmitVertex();
     }
+    EmitVertex();
     EndPrimitive();
 }
 """
 
 _LINE_FRAGMENT_SHADER = """
 #version 330
+in float g_u;
+in float g_v;
+in float g_len;
 out vec4 f_color;
+uniform float width;
+uniform float w_rad;
+uniform float l_rad;
 uniform vec4 color;
 void main() {
+    float aw = 1.0 - smoothstep(1.0 - ((2.0 * w_rad) / width), 1.0, abs(g_u / width));
+    float al = 1.0 - smoothstep(1.0 - ((2.0 * l_rad) / g_len), 1.0, abs(g_v / g_len));
     f_color = color;
+    f_color.a *= min(aw, al);
 }
 """
 
@@ -244,7 +261,7 @@ def _get_clip_ranges(lengthes: list[float]) -> list[tuple[float, float]]:
 
 def _get_sc_color(colors: NDArray, state: State) -> NDArray:
     # Clip labels to make it work when less number of colors are provided
-    label = np.clip(np.array(state.label), a_min=0, a_max=len(colors) - 1)
+    label = np.clip(np.array(state.label), 0, len(colors) - 1)
     default_color = colors[label].astype(np.float32) / 255.0
     inactive_color = np.ones_like(default_color)
     is_active_expanded = np.expand_dims(state.is_active, axis=1)
@@ -252,6 +269,8 @@ def _get_sc_color(colors: NDArray, state: State) -> NDArray:
 
 
 class MglRenderer:
+    """Render pymunk environments to the given moderngl context."""
+
     def __init__(
         self,
         context: mgl.Context,
@@ -264,6 +283,8 @@ class MglRenderer:
         voffsets: tuple[int, ...] = (),
         hoffsets: tuple[int, ...] = (),
         sc_color_opt: NDArray | None = None,
+        sensor_color: NDArray | None = None,
+        sensor_width: float = 0.001,
         sensor_fn: Callable[[StateDict], tuple[NDArray, NDArray]] | None = None,
     ) -> None:
         self._context = context
@@ -320,6 +341,8 @@ class MglRenderer:
             fragment_shader=_LINE_FRAGMENT_SHADER,
             color=np.array([0.0, 0.0, 0.0, 0.4], dtype=np.float32),
             width=np.array([0.004], dtype=np.float32),
+            w_rad=np.array([0.001], dtype=np.float32),
+            l_rad=np.array([0.001], dtype=np.float32),
         )
         self._static_lines = SegmentVA(
             ctx=context,
@@ -331,8 +354,14 @@ class MglRenderer:
                 vertex_shader=_LINE_VERTEX_SHADER,
                 geometry_shader=_LINE_GEOMETRY_SHADER,
                 fragment_shader=_LINE_FRAGMENT_SHADER,
-                color=np.array([0.0, 0.0, 0.0, 0.1], dtype=np.float32),
-                width=np.array([0.001], dtype=np.float32),
+                color=(
+                    np.array([0.0, 0.0, 0.0, 0.1], dtype=np.float32)
+                    if sensor_color is None
+                    else sensor_color
+                ),
+                width=np.array([sensor_width], dtype=np.float32),
+                w_rad=np.array([sensor_width / 4], dtype=np.float32),
+                l_rad=np.array([sensor_width / 4], dtype=np.float32),
             )
 
             def collect_sensors(stated: StateDict) -> NDArray:
@@ -448,19 +477,26 @@ class MglRenderer:
 
 
 class MglVisualizer:
+    """
+    Visualizer class that follows the `emevo.Visualizer` protocol.
+    Considered as a main interface to use this visualizer.
+    """
+
     def __init__(
         self,
         x_range: float,
         y_range: float,
         space: Space,
         stated: StateDict,
-        food_color: Color,
+        food_color: NDArray,
+        sensor_color: NDArray | None = None,
         figsize: tuple[float, float] | None = None,
         voffsets: tuple[int, ...] = (),
         hoffsets: tuple[int, ...] = (),
         vsync: bool = False,
         backend: str = "pyglet",
         sensor_fn: Callable[[StateDict], tuple[NDArray, NDArray]] | None = None,
+        sensor_width: float = 0.001,
         title: str = "EmEvo CircleForaging",
     ) -> None:
         self.pix_fmt = "rgba"
@@ -486,7 +522,9 @@ class MglVisualizer:
             stated=stated,
             voffsets=voffsets,
             hoffsets=hoffsets,
-            sc_color_opt=np.array(list(food_color)),
+            sc_color_opt=food_color,
+            sensor_color=sensor_color,
+            sensor_width=sensor_width,
             sensor_fn=sensor_fn,
         )
 
