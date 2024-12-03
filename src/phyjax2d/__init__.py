@@ -2,6 +2,7 @@ from phyjax2d.impl import (
     Capsule,
     Circle,
     Force,
+    Polygon,
     Position,
     Raycast,
     Segment,
@@ -22,7 +23,7 @@ from phyjax2d.utils import (
     SpaceBuilder,
     circle_overlap,
     make_approx_circle,
-    make_square,
+    make_square_segments,
 )
 from phyjax2d.vec2d import Vec2d
 

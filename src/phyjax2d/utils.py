@@ -263,7 +263,7 @@ class SpaceBuilder:
         p2: Vec2d,
         friction: float = 0.8,
         elasticity: float = 0.8,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
             friction=friction,
@@ -282,7 +282,7 @@ class SpaceBuilder:
             moment=jnp.array(jnp.inf),
             elasticity=jnp.array(elasticity),
             friction=jnp.array(friction),
-            rgba=jnp.array(rgba),
+            rgba=jnp.array(color),
         )
         self.segments.append(segment)
 
@@ -295,7 +295,7 @@ class SpaceBuilder:
         elasticity: float = 0.8,
         density: float = 1.0,
         is_static: bool = False,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
             friction=friction,
@@ -330,7 +330,7 @@ class SpaceBuilder:
             elasticity=elasticity,
             density=density,
             is_static=is_static,
-            rgba=rgba,
+            rgba=color,
         )
 
     def add_square(
@@ -343,7 +343,7 @@ class SpaceBuilder:
         elasticity: float = 0.8,
         density: float = 1.0,
         is_static: bool = False,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         a = Vec2d(width / 2, height / 2)
         b = Vec2d(-width / 2, height / 2)
@@ -357,7 +357,7 @@ class SpaceBuilder:
             elasticity=elasticity,
             density=density,
             is_static=is_static,
-            rgba=rgba,
+            rgba=color,
         )
 
     def _add_polygon_internal(
@@ -406,7 +406,7 @@ class SpaceBuilder:
         chain_points: list[tuple[Vec2d, Vec2d]],
         friction: float = 0.8,
         elasticity: float = 0.8,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
             friction=friction,
@@ -428,7 +428,7 @@ class SpaceBuilder:
                 moment=jnp.array(jnp.inf),
                 elasticity=jnp.array(elasticity),
                 friction=jnp.array(friction),
-                rgba=jnp.array(rgba),
+                rgba=jnp.array(color),
             )
             self.segments.append(segment)
 
@@ -487,7 +487,7 @@ def make_approx_circle(
     return lines
 
 
-def make_square(
+def make_square_segments(
     xmin: float,
     xmax: float,
     ymin: float,

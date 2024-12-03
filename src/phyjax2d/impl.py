@@ -633,13 +633,16 @@ class ShapeDict:
         capsule = then(self.capsule, lambda s: State.zeros(len(s.mass)))
         static_capsule = then(self.capsule, lambda s: State.zeros(len(s.mass)))
         triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
-        static_triangle = then(self.triangle, lambda s: State.zeros(len(s.mass)))
+        static_triangle = then(self.static_triangle, lambda s: State.zeros(len(s.mass)))
         quadrangle = then(self.quadrangle, lambda s: State.zeros(len(s.mass)))
-        static_quadrangle = then(self.quadrangle, lambda s: State.zeros(len(s.mass)))
+        static_quadrangle = then(
+            self.static_quadrangle,
+            lambda s: State.zeros(len(s.mass)),
+        )
         pentagon = then(self.pentagon, lambda s: State.zeros(len(s.mass)))
-        static_pentagon = then(self.pentagon, lambda s: State.zeros(len(s.mass)))
+        static_pentagon = then(self.static_pentagon, lambda s: State.zeros(len(s.mass)))
         hexagon = then(self.hexagon, lambda s: State.zeros(len(s.mass)))
-        static_hexagon = then(self.hexagon, lambda s: State.zeros(len(s.mass)))
+        static_hexagon = then(self.static_hexagon, lambda s: State.zeros(len(s.mass)))
         return StateDict(
             circle=circle,
             static_circle=static_circle,
@@ -796,11 +799,11 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
     ("triangle", "circle"): functools.partial(_polygon_to_circle, key="triangle"),
-    ("triangle", "triangle"): functools.partial(
-        _polygon_to_polygon,
-        key1="triangle",
-        key2="triangle",
-    ),
+    # ("triangle", "triangle"): functools.partial(
+    #     _polygon_to_polygon,
+    #     key1="triangle",
+    #     key2="triangle",
+    # ),
 }
 
 
