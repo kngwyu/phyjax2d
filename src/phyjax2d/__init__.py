@@ -1,10 +1,11 @@
 from phyjax2d.impl import (
     Capsule,
     Circle,
-    Segment,
     Force,
+    Polygon,
     Position,
     Raycast,
+    Segment,
     ShapeDict,
     Space,
     State,
@@ -17,7 +18,13 @@ from phyjax2d.impl import (
     step,
 )
 from phyjax2d.moderngl_vis import MglVisualizer
-from phyjax2d.utils import Color, SpaceBuilder, make_approx_circle, make_square, circle_overlap
+from phyjax2d.utils import (
+    Color,
+    SpaceBuilder,
+    circle_overlap,
+    make_approx_circle,
+    make_square_segments,
+)
 from phyjax2d.vec2d import Vec2d
 
 __version__ = "0.1.2"

@@ -1,9 +1,11 @@
-""" Utilities to construct physics simulation """
+"""Utilities to construct physics simulation"""
 
 from __future__ import annotations
 
 import dataclasses
 import warnings
+from collections import defaultdict
+from copy import deepcopy
 from typing import Any, Callable, NamedTuple
 
 import jax
@@ -14,6 +16,7 @@ from jax._src.numpy.lax_numpy import TypeVar
 from phyjax2d.impl import (
     Capsule,
     Circle,
+    Polygon,
     Segment,
     Shape,
     ShapeDict,
@@ -25,6 +28,7 @@ from phyjax2d.impl import (
 from phyjax2d.vec2d import Vec2d
 
 Self = Any
+_N_MAX_POLYGON_VERTICES = 6
 
 
 class Color(NamedTuple):
@@ -51,7 +55,7 @@ def _mass_and_moment(
     is_static: bool = False,
 ) -> tuple[jax.Array, jax.Array]:
     if is_static:
-        return jnp.array([jnp.inf]), jnp.array([jnp.inf])
+        return jnp.array(jnp.inf), jnp.array(jnp.inf)
     else:
         return jnp.array(mass), jnp.array(moment)
 
@@ -60,7 +64,7 @@ def _circle_mass(radius: float, density: float) -> tuple[jax.Array, jax.Array]:
     rr = radius**2
     mass = density * jnp.pi * rr
     moment = 0.5 * mass * rr
-    return jnp.array([mass]), jnp.array([moment])
+    return jnp.array(mass), jnp.array(moment)
 
 
 def _capsule_mass(
@@ -73,15 +77,56 @@ def _capsule_mass(
     circle_moment = 0.5 * (rr + ll)
     box_moment = (4 * rr + ll) / 12
     moment = mass * (circle_moment + box_moment)
-    return jnp.array([mass]), jnp.array([moment])
+    return jnp.array(mass), jnp.array(moment)
+
+
+def _polygon_mass(
+    points: list[Vec2d],
+    normals: list[Vec2d],
+    radius: float,
+    density: float,
+) -> tuple[jax.Array, jax.Array]:
+    vertices = deepcopy(points)
+    n = len(vertices)
+    # If the polygon is rounded, approximate mass by pushing out vertices
+    if radius > 0:
+        radius_sqrt2 = radius * (2**0.5)
+        for i in range(n):
+            j = (i + 1) % n
+            n1 = normals[i]
+            n2 = normals[j]
+            mid = (n1 + n2).normalized()
+            vertices[i] += radius_sqrt2 * mid
+
+    r = vertices[0]
+    total_area = 0.0
+    center = Vec2d(0.0, 0.0)
+    moment = 0.0
+    for v1, v2 in zip(vertices[1:], vertices[2:]):
+        e1 = v1 - r
+        e2 = v2 - r
+        d = e1.cross(e2)
+        area = d * 0.5
+        total_area += area
+        center += (e1 + e2) * (area / 3)
+        intx2 = e1.x**2 + e2.x**2 + e1.x * e2.x
+        inty2 = e1.y**2 + e2.y**2 + e1.y * e2.y
+        moment += d * (intx2 + inty2) / 12
+
+    mass = density * total_area
+    center /= total_area
+    center_r = center + r
+    moment_shift = center_r.dot(center_r) - center.dot(center)
+    moment = (density * moment) + mass * moment_shift
+    return jnp.array(mass), jnp.array(moment)
 
 
 S = TypeVar("S", bound=Shape)
 
 
-def _concat_or(sl: list[S], default_fn: Callable[[], S]) -> S:
+def _stack_or(sl: list[S], default_fn: Callable[[], S]) -> S:
     if len(sl) > 0:
-        return jax.tree_util.tree_map(lambda *args: jnp.concatenate(args, axis=0), *sl)
+        return jax.tree.map(lambda *args: jnp.stack(args), *sl)
     else:
         return default_fn()
 
@@ -94,6 +139,24 @@ def _check_params_positive(friction: float, **kwargs) -> None:
         )
     for key, value in kwargs.items():
         assert value > 0.0, f"Invalid value for {key}: {value}"
+
+
+def _compute_centroid(points: list[Vec2d]) -> Vec2d:
+    # Compute centroid
+    center = Vec2d(0.0, 0.0)
+    total_area = 0.0
+    origin = points[0]
+    for a, b in zip(points[1:], points[2:]):
+        e1 = a - origin
+        e2 = b - origin
+        area = e1.cross(e2) * 0.5
+        center += (e1 + e2) * (area / 3)
+        total_area += area
+    return (center / total_area) + origin
+
+
+def _make_listdd() -> dict[int, list]:
+    return defaultdict(list)
 
 
 @dataclasses.dataclass
@@ -109,6 +172,10 @@ class SpaceBuilder:
     capsules: list[Capsule] = dataclasses.field(default_factory=list)
     static_capsules: list[Capsule] = dataclasses.field(default_factory=list)
     segments: list[Segment] = dataclasses.field(default_factory=list)
+    polygons: dict[int, list[Polygon]] = dataclasses.field(default_factory=_make_listdd)
+    static_polygons: dict[int, list[Polygon]] = dataclasses.field(
+        default_factory=_make_listdd
+    )
     dt: float = 0.1
     linear_damping: float = 0.9
     angular_damping: float = 0.9
@@ -140,12 +207,12 @@ class SpaceBuilder:
         )
         mass, moment = _mass_and_moment(*_circle_mass(radius, density), is_static)
         circle = Circle(
-            radius=jnp.array([radius]),
+            radius=jnp.array(radius),
             mass=mass,
             moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(color).reshape(1, 4),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(color),
         )
         if is_static:
             self.static_circles.append(circle)
@@ -175,14 +242,14 @@ class SpaceBuilder:
             is_static,
         )
         capsule = Capsule(
-            point1=jnp.array(p1).reshape(1, 2),
-            point2=jnp.array(p2).reshape(1, 2),
-            radius=jnp.array([radius]),
+            point1=jnp.array(p1),
+            point2=jnp.array(p2),
+            radius=jnp.array(radius),
             mass=mass,
             moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(color).reshape(1, 4),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(color),
         )
         if is_static:
             self.static_capsules.append(capsule)
@@ -196,29 +263,142 @@ class SpaceBuilder:
         p2: Vec2d,
         friction: float = 0.8,
         elasticity: float = 0.8,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
             friction=friction,
             elasticity=elasticity,
         )
-        mass, moment = jnp.array([jnp.inf]), jnp.array([jnp.inf])
-        point1 = jnp.array(p1).reshape(1, 2)
-        point2 = jnp.array(p2).reshape(1, 2)
+        point1 = jnp.array(p1)
+        point2 = jnp.array(p2)
         segment = Segment(
-            point1=jnp.array(p1).reshape(1, 2),
-            point2=jnp.array(p2).reshape(1, 2),
-            is_smooth=jnp.array([False]),
+            point1=point1,
+            point2=point2,
+            is_smooth=jnp.array(False),
             # Fake ghosts
             ghost1=point1,
             ghost2=point2,
-            mass=mass,
-            moment=moment,
-            elasticity=jnp.array([elasticity]),
-            friction=jnp.array([friction]),
-            rgba=jnp.array(rgba).reshape(1, 4),
+            mass=jnp.array(jnp.inf),
+            moment=jnp.array(jnp.inf),
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(color),
         )
         self.segments.append(segment)
+
+    def add_polygon(
+        self,
+        *,
+        points: list[Vec2d],
+        radius: float = 0.0,
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
+        color: Color = _BLACK,
+    ) -> None:
+        _check_params_positive(
+            friction=friction,
+            elasticity=elasticity,
+        )
+        # Need to have at least three points
+        n = len(points)
+        if n < 3:
+            raise ValueError("Polygon needs at least three vertices")
+        elif n > _N_MAX_POLYGON_VERTICES:
+            raise ValueError(f"Too many vertices {n} for polygon")
+        # Check convexity
+        cross_list = []
+        for a, b, c in zip(points, points[1:], points[2:]):
+            a2b = b - a
+            b2c = c - b
+            cross = a2b.cross(b2c)
+            if cross == 0:
+                raise ValueError(f"Redundant points in polygon: {a, b, c}")
+            cross_list.append(cross)
+        signs = np.sign(cross_list)
+        if np.all(signs == -1):
+            # Flip arrays to make them counter clock wise
+            points.reverse()
+        elif not np.all(signs == 1):
+            raise ValueError("Given polygon is not convex!")
+        self._add_polygon_internal(
+            points=points,
+            centroid=_compute_centroid(points),
+            radius=radius,
+            friction=friction,
+            elasticity=elasticity,
+            density=density,
+            is_static=is_static,
+            rgba=color,
+        )
+
+    def add_square(
+        self,
+        *,
+        width: float,
+        height: float,
+        radius: float = 0.0,
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
+        color: Color = _BLACK,
+    ) -> None:
+        a = Vec2d(width / 2, height / 2)
+        b = Vec2d(-width / 2, height / 2)
+        c = Vec2d(-width / 2, -height / 2)
+        d = Vec2d(width / 2, -height / 2)
+        self._add_polygon_internal(
+            points=[a, b, c, d],
+            centroid=Vec2d(0.0, 0.0),
+            radius=radius,
+            friction=friction,
+            elasticity=elasticity,
+            density=density,
+            is_static=is_static,
+            rgba=color,
+        )
+
+    def _add_polygon_internal(
+        self,
+        *,
+        points: list[Vec2d],
+        centroid: Vec2d,
+        radius: float = 0.0,
+        friction: float = 0.8,
+        elasticity: float = 0.8,
+        density: float = 1.0,
+        is_static: bool = False,
+        rgba: Color = _BLACK,
+    ) -> None:
+        # Compute normal
+        normals = []
+
+        for p1, p2 in zip(points, points[1:] + points[:1]):
+            edge = p2 - p1
+            if edge.dot(edge) < 1e-6:
+                raise ValueError(f"Edge is too short in polygon: {p1} and {p2}")
+            # Rotate the edge 90 degree right and normalize it
+            normals.append(edge.perpendicular_right().normalized())
+
+        mass, moment = _polygon_mass(points, normals, radius, density)
+        polygon = Polygon(
+            points=jnp.array(points),
+            normals=jnp.array(normals),
+            centroid=jnp.array(centroid),
+            radius=jnp.array(radius),
+            mass=mass,
+            moment=moment,
+            elasticity=jnp.array(elasticity),
+            friction=jnp.array(friction),
+            rgba=jnp.array(rgba),
+        )
+        n = len(points)
+        if is_static:
+            self.static_polygons[n].append(polygon)
+        else:
+            self.polygons[n].append(polygon)
 
     def add_chain_segments(
         self,
@@ -226,44 +406,50 @@ class SpaceBuilder:
         chain_points: list[tuple[Vec2d, Vec2d]],
         friction: float = 0.8,
         elasticity: float = 0.8,
-        rgba: Color = _BLACK,
+        color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
             friction=friction,
             elasticity=elasticity,
         )
-        mass, moment = jnp.array([jnp.inf]), jnp.array([jnp.inf])
         n_points = len(chain_points)
         for i in range(n_points):
             g1 = chain_points[i - 1][0]
             p1, p2 = chain_points[i]
             g2 = chain_points[(i + 1) % n_points][1]
             segment = Segment(
-                point1=jnp.array(p1).reshape(1, 2),
-                point2=jnp.array(p2).reshape(1, 2),
-                is_smooth=jnp.array([True]),
+                point1=jnp.array(p1),
+                point2=jnp.array(p2),
+                is_smooth=jnp.array(True),
                 # Fake ghosts
-                ghost1=jnp.array(g1).reshape(1, 2),
-                ghost2=jnp.array(g2).reshape(1, 2),
-                mass=mass,
-                moment=moment,
-                elasticity=jnp.array([elasticity]),
-                friction=jnp.array([friction]),
-                rgba=jnp.array(rgba).reshape(1, 4),
+                ghost1=jnp.array(g1),
+                ghost2=jnp.array(g2),
+                mass=jnp.array(jnp.inf),
+                moment=jnp.array(jnp.inf),
+                elasticity=jnp.array(elasticity),
+                friction=jnp.array(friction),
+                rgba=jnp.array(color),
             )
             self.segments.append(segment)
 
     def build(self) -> Space:
         shaped = ShapeDict(
-            circle=_concat_or(self.circles, empty(Circle)),
-            static_circle=_concat_or(self.static_circles, empty(Circle)),
-            segment=_concat_or(self.segments, empty(Segment)),
-            capsule=_concat_or(self.capsules, empty(Capsule)),
-            static_capsule=_concat_or(self.static_capsules, empty(Capsule)),
+            circle=_stack_or(self.circles, empty(Circle)),
+            static_circle=_stack_or(self.static_circles, empty(Circle)),
+            segment=_stack_or(self.segments, empty(Segment)),
+            capsule=_stack_or(self.capsules, empty(Capsule)),
+            static_capsule=_stack_or(self.static_capsules, empty(Capsule)),
+            triangle=_stack_or(self.polygons[3], empty(Polygon)),
+            static_triangle=_stack_or(self.static_polygons[3], empty(Polygon)),
+            quadrangle=_stack_or(self.polygons[4], empty(Polygon)),
+            static_quadrangle=_stack_or(self.static_polygons[4], empty(Polygon)),
+            pentagon=_stack_or(self.polygons[5], empty(Polygon)),
+            static_pentagon=_stack_or(self.static_polygons[5], empty(Polygon)),
+            hexagon=_stack_or(self.polygons[6], empty(Polygon)),
+            static_hexagon=_stack_or(self.static_polygons[6], empty(Polygon)),
         )
-        dt = self.dt
-        linear_damping = jnp.exp(-dt * self.linear_damping).item()
-        angular_damping = jnp.exp(-dt * self.angular_damping).item()
+        linear_damping = jnp.exp(-self.dt * self.linear_damping).item()
+        angular_damping = jnp.exp(-self.dt * self.angular_damping).item()
         max_velocity = jnp.inf if self.max_velocity is None else self.max_velocity
         max_angular_velocity = (
             jnp.inf if self.max_angular_velocity is None else self.max_angular_velocity
@@ -301,7 +487,7 @@ def make_approx_circle(
     return lines
 
 
-def make_square(
+def make_square_segments(
     xmin: float,
     xmax: float,
     ymin: float,
@@ -339,6 +525,7 @@ def circle_overlap(
     radius: jax.Array | float,
 ) -> jax.Array:
     # Circle overlap
+    overlap = jnp.array(False)
     if stated.circle is not None and shaped.circle is not None:
         cpos = stated.circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
@@ -346,8 +533,6 @@ def circle_overlap(
         penetration = shaped.circle.radius + radius - dist
         has_overlap = jnp.logical_and(stated.circle.is_active, penetration >= 0)
         overlap = jnp.any(has_overlap)
-    else:
-        overlap = jnp.array(False)
 
     # Static_circle overlap
     if stated.static_circle is not None and shaped.static_circle is not None:

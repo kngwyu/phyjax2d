@@ -289,14 +289,11 @@ class Vec2d(NamedTuple):
             return self / length, length
         return Vec2d(0, 0), 0
 
-    def perpendicular(self) -> Self:
+    def perpendicular_left(self) -> Self:
         return Vec2d(-self.y, self.x)
 
-    def perpendicular_normal(self) -> Self:
-        length = self.length
-        if length != 0:
-            return Vec2d(-self.y / length, self.x / length)
-        return Vec2d(self.x, self.y)
+    def perpendicular_right(self) -> Self:
+        return Vec2d(self.y, -self.x)
 
     def dot(self, other: tuple[float, float]) -> float:
         """The dot product between the vector and other vector
@@ -397,18 +394,3 @@ class Vec2d(NamedTuple):
         Vec2d(1, 1)
         """
         return Vec2d(1, 1)
-
-    # Extra functions, mainly for chipmunk
-    def cpvrotate(self, other: tuple[float, float]) -> Self:
-        """Uses complex multiplication to rotate this vector by the other."""
-        assert len(other) == 2
-        return Vec2d(
-            self.x * other[0] - self.y * other[1], self.x * other[1] + self.y * other[0]
-        )
-
-    def cpvunrotate(self, other: tuple[float, float]) -> Self:
-        """The inverse of cpvrotate"""
-        assert len(other) == 2
-        return Vec2d(
-            self.x * other[0] + self.y * other[1], self.y * other[0] - self.x * other[1]
-        )

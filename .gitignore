@@ -5,3 +5,8 @@
 **/dist/
 **/build/
 **/*.egg-info/
+.ipynb_checkpoints/
+.venv/
+.virtual_documents/
+uv.lock
+pyrightconfig.json

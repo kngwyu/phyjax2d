@@ -29,6 +29,7 @@ vis = [
     "moderngl >= 5.6",
     "moderngl-window >= 2.4",
 ]
+cuda12 = ["jax[cuda12]"]
 
 [project.readme]
 file = "README.md"
@@ -50,3 +51,11 @@ testpaths = ["tests"]
 
 [tool.isort]
 profile = "black"
+
+[tool.uv]
+dev-dependencies = [
+    "ipython >= 8.0",
+    "pytest >= 8.3.3",
+    "pymunk >= 6.0",
+    "typer >= 0.12",
+]
