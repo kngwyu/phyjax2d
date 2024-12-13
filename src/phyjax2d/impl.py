@@ -83,6 +83,17 @@ class PyTreeOps:
     ) -> Self:
         return jax.tree_util.tree_map(lambda x: x[index], self)
 
+    def split(self, split_index: int) -> tuple[Self, Self]:
+        def split_inner(x: jax.Array) -> tuple[jax.Array, jax.Array]:
+            return x[:split_index], x[split_index:]
+
+        structure = jax.tree.structure(self)
+        return jax.tree.transpose(
+            structure,
+            jax.tree.structure(("*", "*")),
+            jax.tree.map(split_inner, self),
+        )
+
     def reshape(self, shape: Sequence[int]) -> Self:
         return jax.tree_util.tree_map(lambda x: x.reshape(shape), self)
 
