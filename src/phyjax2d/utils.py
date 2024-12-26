@@ -6,12 +6,11 @@ import dataclasses
 import warnings
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, NamedTuple, TypeVar
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.numpy.lax_numpy import TypeVar
 
 from phyjax2d.impl import (
     Capsule,

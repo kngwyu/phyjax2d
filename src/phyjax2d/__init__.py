@@ -4,7 +4,6 @@ from phyjax2d.impl import (
     Force,
     Polygon,
     Position,
-    Raycast,
     Segment,
     ShapeDict,
     Space,
@@ -12,12 +11,11 @@ from phyjax2d.impl import (
     StateDict,
     Velocity,
     VelocitySolver,
-    circle_raycast,
     get_relative_angle,
-    segment_raycast,
     step,
 )
 from phyjax2d.moderngl_vis import MglVisualizer
+from phyjax2d.raycast import Raycast, circle_raycast, segment_raycast
 from phyjax2d.utils import (
     Color,
     SpaceBuilder,
