@@ -25,14 +25,14 @@ def test_triangle_to_circle(space: Space) -> None:
         "circle.p.xy",
         jnp.array([[2.4, 2.4], [-2.0, -4.05]]),
     )
-    contact = space.check_contacts_selected(sd, [("triangle", "circle")])
+    contact = space.check_contacts_selected(sd, ("triangle", "circle"))
     has_contact = contact.penetration >= 0
     chex.assert_trees_all_close(has_contact, jnp.array([True, False, False, True]))
     sd = sd.nested_replace(
         "circle.p.xy",
         jnp.array([[2.42, 2.42], [-2.0, -4.11]]),
     )
-    contact = space.check_contacts_selected(sd, [("triangle", "circle")])
+    contact = space.check_contacts_selected(sd, ("triangle", "circle"))
     has_contact = contact.penetration >= 0
     chex.assert_trees_all_close(has_contact, jnp.array([False, False, False, False]))
 

@@ -835,6 +835,9 @@ class Space:
     bounce_threshold: float = 1.0
     max_velocity: float = 100.0
     max_angular_velocity: float = 100.0
+    no_collision_constraints: dict[tuple[str, str], tuple[int, int]] = (
+        dataclasses.field(default_factory=dict)
+    )
     _contact_offset: dict[tuple[str, str], tuple[int, int]] = dataclasses.field(
         default_factory=dict,
         init=False,
@@ -880,32 +883,46 @@ class Space:
             *ci_slided_list,
         )
 
-    def check_contacts(self, stated: StateDict) -> Contact:
-        contacts = []
+    def check_contacts(self, stated: StateDict) -> tuple[Contact, jax.Array]:
+        contacts, ignore_flags = [], []
         for (n1, n2), fn in _CONTACT_FUNCTIONS.items():
             ci = self._ci.get((n1, n2), None)
             if ci is not None:
                 contact = fn(ci, stated)
                 contacts.append(contact)
-        return jax.tree_util.tree_map(
+                n = ci.index1.shape[0]
+                if (n1, n2) in self.no_collision_constraints:
+                    label1, label2 = self.no_collision_constraints[(n1, n2)]
+                    flag1 = (
+                        jnp.ones(n, dtype=bool)
+                        if label1 == -1
+                        else stated[n1].label[ci.index1] == label1  # type: ignore
+                    )
+                    flag2 = (
+                        jnp.ones(n, dtype=bool)
+                        if label2 == -1
+                        else stated[n2].label[ci.index2] == label2  # type: ignore
+                    )
+                    ignore_flags.append(jnp.logical_or(flag1, flag2))
+                else:
+                    ignore_flags.append(jnp.zeros(n, dtype=bool))
+        total_contacts = jax.tree.map(
             lambda *args: jnp.concatenate(args, axis=0),
             *contacts,
         )
+        return total_contacts, jnp.concatenate(ignore_flags)
 
     def check_contacts_selected(
-        self, stated: StateDict, selector: list[tuple[str, str]]
-    ) -> Contact:
-        contacts = []
-        for selected_contact in selector:
-            fn = _CONTACT_FUNCTIONS[selected_contact]
-            ci = self._ci.get(selected_contact, None)
-            if ci is not None:
-                contact = fn(ci, stated)
-                contacts.append(contact)
-        return jax.tree_util.tree_map(
-            lambda *args: jnp.concatenate(args, axis=0),
-            *contacts,
-        )
+        self,
+        stated: StateDict,
+        selected: tuple[str, str],
+    ) -> Contact | None:
+        fn = _CONTACT_FUNCTIONS[selected]
+        ci = self._ci.get(selected, None)
+        if ci is not None:
+            return fn(ci, stated)
+        else:
+            return None
 
     def n_possible_contacts(self) -> int:
         n = 0
@@ -1283,10 +1300,14 @@ def step(
     solver: VelocitySolver,
 ) -> tuple[StateDict, VelocitySolver, Contact]:
     state = update_velocity(space, space.shaped.concat(), stated.concat())
-    contact = space.check_contacts(stated.update(state))
+    contact, ignore_flags = space.check_contacts(stated.update(state))
+    penetration_allowed = jnp.logical_and(
+        contact.penetration >= space.speculative_distance,
+        jnp.logical_not(ignore_flags),
+    )
     v, p, solver = solve_constraints(
         space,
-        solver.update(contact.penetration >= space.speculative_distance),
+        solver.update(penetration_allowed),
         state.p,
         state.v,
         contact,

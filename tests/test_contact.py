@@ -22,7 +22,7 @@ def test_circle_to_circle(space: Space) -> None:
         "circle.p.xy",
         jnp.array([[1.0, 2.0], [3.0, 2.0], [4.0, 8.0]]),
     )
-    contact = space.check_contacts_selected(sd, [("circle", "circle")])
+    contact = space.check_contacts_selected(sd, ("circle", "circle"))
     has_contact = contact.penetration >= 0
     chex.assert_trees_all_close(has_contact, jnp.array([True, False, False]))
 
@@ -33,7 +33,7 @@ def test_circle_to_segment(space: Space) -> None:
         jnp.array([[1.0, 2.0], [3.0, 2.0], [4.0, 8.0]]),
     )
     sd = sd.nested_replace("segment.p.xy", jnp.array([[0.0, 2.0], [4.0, 4.0]]))
-    contact = space.check_contacts_selected(sd, [("segment", "circle")])
+    contact = space.check_contacts_selected(sd, ("segment", "circle"))
     has_contact = contact.penetration >= 0
     chex.assert_trees_all_close(
         has_contact,
