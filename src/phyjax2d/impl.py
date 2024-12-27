@@ -16,6 +16,7 @@ import jax.numpy as jnp
 Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
+_INDEX = int | Sequence[int] | Sequence[bool] | jax.Array
 
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
@@ -77,10 +78,7 @@ class PyTreeOps:
         return jax.tree_util.tree_map(lambda x: x / o, self)
 
     @jax.jit
-    def get_slice(
-        self,
-        index: int | Sequence[int] | Sequence[bool] | jax.Array,
-    ) -> Self:
+    def get_slice(self, index: INDEX) -> Self:
         return jax.tree_util.tree_map(lambda x: x[index], self)
 
     def split(self, split_index: int) -> tuple[Self, Self]:
@@ -121,7 +119,8 @@ class _PositionLike(Protocol):
     angle: jax.Array  # Angular velocity (N,)
     xy: jax.Array  # (N, 2)
 
-    def __init__(self, angle: jax.Array, xy: jax.Array) -> None: ...
+    def __init__(self, angle: jax.Array, xy: jax.Array) -> None:
+        ...
 
     def batch_size(self) -> int:
         return self.angle.shape[0]
@@ -835,9 +834,9 @@ class Space:
     bounce_threshold: float = 1.0
     max_velocity: float = 100.0
     max_angular_velocity: float = 100.0
-    no_collision_constraints: dict[tuple[str, str], tuple[int, int]] = (
-        dataclasses.field(default_factory=dict)
-    )
+    no_collision_constraints: dict[
+        tuple[str, str], tuple[int, int]
+    ] = dataclasses.field(default_factory=dict)
     _contact_offset: dict[tuple[str, str], tuple[int, int]] = dataclasses.field(
         default_factory=dict,
         init=False,
@@ -847,6 +846,7 @@ class Space:
         init=False,
     )
     _ci_total: ContactIndices = dataclasses.field(init=False)
+    _ignore_flags: jax.Array = dataclasses.field(init=False)
     _hash_key: uuid.UUID = dataclasses.field(default_factory=uuid.uuid4, init=False)
 
     def __hash__(self) -> int:
@@ -858,6 +858,7 @@ class Space:
     def __post_init__(self) -> None:
         ci_slided_list = []
         offset = 0
+        total_ci_len = 0
         for n1, n2 in _CONTACT_FUNCTIONS.keys():
             shape1, shape2 = self.shaped[n1], self.shaped[n2]  # type: ignore
             if shape1.batch_size() > 0 and shape2.batch_size() > 0:
@@ -866,6 +867,7 @@ class Space:
                 else:
                     ci = _pair_ci(shape1, shape2)
                 self._ci[n1, n2] = ci
+                total_ci_len += ci.index1.shape[0]
                 offset_start = offset
                 offset += ci.shape1.batch_size()
                 self._contact_offset[n1, n2] = offset_start, offset
@@ -878,39 +880,47 @@ class Space:
                     index2=ci.index2 + offset2,
                 )
                 ci_slided_list.append(ci_slided)
+
         self._ci_total = jax.tree.map(
             lambda *args: jnp.concatenate(args, axis=0),
             *ci_slided_list,
         )
+        self._ignore_flags = jnp.zeros(total_ci_len, dtype=bool)
 
-    def check_contacts(self, stated: StateDict) -> tuple[Contact, jax.Array]:
-        contacts, ignore_flags = [], []
+    def set_ignore_flags_by_indices(
+        self,
+        target_n1: int,
+        target_n2: int,
+        n1_idx: INDEX,
+        n2_idx: INDEX,
+    ) -> None:
+        start = 0
+        for (n1, n2), fn in _CONTACT_FUNCTIONS.items():
+            ci = self._ci.get((n1, n2), None)
+            if ci is not None:
+                n = ci.index1.shape[0]
+                if target_n1 == n1 and target_n2 == n2:
+                    false_array = jnp.ones(n, dtype=bool)
+                    flag1 = false_array.at[n1_idx].set(True)[ci.index1]
+                    flag2 = false_array.at[n2_idx].set(True)[ci.index2]
+                    self._ignore_flags = self._ignore_flags.at[start : start + n].set(
+                        flag1 | flag2
+                    )
+                    return
+                else:
+                    start += n
+
+    def check_contacts(self, stated: StateDict) -> jax.Array:
+        contacts = []
         for (n1, n2), fn in _CONTACT_FUNCTIONS.items():
             ci = self._ci.get((n1, n2), None)
             if ci is not None:
                 contact = fn(ci, stated)
                 contacts.append(contact)
-                n = ci.index1.shape[0]
-                if (n1, n2) in self.no_collision_constraints:
-                    label1, label2 = self.no_collision_constraints[(n1, n2)]
-                    flag1 = (
-                        jnp.ones(n, dtype=bool)
-                        if label1 == -1
-                        else stated[n1].label[ci.index1] == label1  # type: ignore
-                    )
-                    flag2 = (
-                        jnp.ones(n, dtype=bool)
-                        if label2 == -1
-                        else stated[n2].label[ci.index2] == label2  # type: ignore
-                    )
-                    ignore_flags.append(jnp.logical_or(flag1, flag2))
-                else:
-                    ignore_flags.append(jnp.zeros(n, dtype=bool))
-        total_contacts = jax.tree.map(
+        return jax.tree.map(
             lambda *args: jnp.concatenate(args, axis=0),
             *contacts,
         )
-        return total_contacts, jnp.concatenate(ignore_flags)
 
     def check_contacts_selected(
         self,
@@ -1300,10 +1310,10 @@ def step(
     solver: VelocitySolver,
 ) -> tuple[StateDict, VelocitySolver, Contact]:
     state = update_velocity(space, space.shaped.concat(), stated.concat())
-    contact, ignore_flags = space.check_contacts(stated.update(state))
+    contact = space.check_contacts(stated.update(state))
     penetration_allowed = jnp.logical_and(
         contact.penetration >= space.speculative_distance,
-        jnp.logical_not(ignore_flags),
+        jnp.logical_not(space._ignore_flags),
     )
     v, p, solver = solve_constraints(
         space,
