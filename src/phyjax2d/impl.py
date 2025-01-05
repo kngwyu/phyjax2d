@@ -889,8 +889,8 @@ class Space:
 
     def set_ignore_flags_by_indices(
         self,
-        target_n1: int,
-        target_n2: int,
+        target_n1: str,
+        target_n2: str,
         n1_idx: INDEX,
         n2_idx: INDEX,
     ) -> None:
@@ -900,11 +900,11 @@ class Space:
             if ci is not None:
                 n = ci.index1.shape[0]
                 if target_n1 == n1 and target_n2 == n2:
-                    false_array = jnp.ones(n, dtype=bool)
+                    false_array = jnp.zeros(n, dtype=bool)
                     flag1 = false_array.at[n1_idx].set(True)[ci.index1]
                     flag2 = false_array.at[n2_idx].set(True)[ci.index2]
                     self._ignore_flags = self._ignore_flags.at[start : start + n].set(
-                        flag1 | flag2
+                        jnp.logical_and(flag1, flag2)
                     )
                     return
                 else:
