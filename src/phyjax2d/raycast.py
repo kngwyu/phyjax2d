@@ -89,6 +89,15 @@ def segment_raycast(
     )
 
 
+def _vmap_dot(xy1: jax.Array, xy2: jax.Array) -> jax.Array:
+    """Dot product between nested vectors"""
+    chex.assert_equal_shape((xy1, xy2))
+    orig_shape = xy1.shape
+    a = xy1.reshape(-1, orig_shape[-1])
+    b = xy2.reshape(-1, orig_shape[-1])
+    return jax.vmap(jnp.dot, in_axes=(0, 0))(a, b).reshape(*orig_shape[:-1])
+
+
 def thin_polygon_raycast(
     max_fraction: float | jax.Array,
     p1: jax.Array,
@@ -96,26 +105,24 @@ def thin_polygon_raycast(
     polygon: Polygon,
     state: State,
 ) -> Raycast:
-    d = p2 - p1
-    v1, v2 = polygon.points[:-1], polygon.points[1:]
-    v1, v2 = state.p.transform(v1), state.p.transform(v2)
-    e = v2 - v1
-    eunit, length = normalize(e)
-    normal = _sv_cross(jnp.ones_like(length) * -1, eunit)
-    numerator = _vmap_dot(normal, v1 - p1)  # (N,)
-    denominator = jnp.dot(normal, d)  # (N,)
+    p1 = state.p.transform(p1)  # (N, 2)
+    d = state.p.transform(p2) - p1  # (N, 2)
+    vp = polygon.points - jnp.expand_dims(p1, axis=1)  # (N, NP, 2)
+    numerator = _vmap_dot(polygon.normals, vp)  # (N, NP)
+    denominator = jax.vmap(jax.vmap(jnp.dot, in_axes=(0, None)), in_axes=(0, 0))(
+        polygon.normals,
+        d,
+    )  # (N, NP)
     t = numerator / denominator
-    p = jax.vmap(lambda ti: ti * d + p1)(t)  # (N, 2)
-    s = _vmap_dot(p - v1, eunit)
-    normal = jnp.where(jnp.expand_dims(numerator > 0.0, axis=1), -normal, normal)
+    upper = jnp.min(jnp.where(denominator > 0.0, t, jnp.inf), axis=1)
+    lower_cand = jnp.where(denominator < 0.0, t, jnp.inf)
+    lower = jnp.min(lower_cand, axis=1)
+    idx = jnp.argmin(t, axis=1)
     return Raycast(  # type: ignore
-        fraction=t,
-        normal=normal,
+        fraction=lower,
+        normal=polygon.normals[:, *idx],
         hit=jnp.logical_and(
-            denominator != 0.0,
-            jnp.logical_and(
-                jnp.logical_and(t >= 0.0, t <= max_fraction),
-                jnp.logical_and(s >= 0.0, s <= length),
-            ),
+            jnp.logical_and(lower >= 0.0, lower <= max_fraction),
+            lower < upper,
         ),
     )

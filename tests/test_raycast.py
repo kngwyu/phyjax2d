@@ -44,3 +44,13 @@ def test_segment_raycast(space: Space) -> None:
         0.01, p1, p2, space.shaped.segment, sd.segment
     )
     chex.assert_trees_all_close(rc.fraction.ravel(), jnp.array([0.5, 1.0]))
+
+
+def test_polygon_raycast(space: Space) -> None:
+    sd = space.zeros_state()
+    p1 = jnp.array([[-2.0, 1.0], [0.0, -1.0]])
+    p2 = jnp.array([[2.0, 1.0], [0.0, 9.0]])
+    rc = jax.vmap(thin_polygon_raycast, in_axes=(None, 0, 0, None, None))(
+        0.01, p1, p2, space.shaped.triangle, sd.triangle
+    )
+    chex.assert_trees_all_close(rc.fraction.ravel(), jnp.array([0.5, 0.1]))

@@ -16,7 +16,6 @@ import jax.numpy as jnp
 Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
-_INDEX = int | Sequence[int] | Sequence[bool] | jax.Array
 
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
@@ -816,6 +815,7 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
 }
 
 
+# TODO: pretty print
 @chex.dataclass
 class Space:
     gravity: jax.Array
