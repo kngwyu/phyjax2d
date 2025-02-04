@@ -14,8 +14,12 @@ from phyjax2d.impl import (
     get_relative_angle,
     step,
 )
-from phyjax2d.moderngl_vis import MglVisualizer
-from phyjax2d.raycast import Raycast, circle_raycast, segment_raycast
+from phyjax2d.raycast import (
+    Raycast,
+    circle_raycast,
+    segment_raycast,
+    thin_polygon_raycast,
+)
 from phyjax2d.utils import (
     Color,
     SpaceBuilder,

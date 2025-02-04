@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 
 from phyjax2d.impl import (
     Circle,
+    Polygon,
     Segment,
     State,
-    normalize,
-    _vmap_dot,
     _sv_cross,
+    _vmap_dot,
+    normalize,
 )
 
 
@@ -65,6 +66,38 @@ def segment_raycast(
 ) -> Raycast:
     d = p2 - p1
     v1, v2 = segment.point1, segment.point2
+    v1, v2 = state.p.transform(v1), state.p.transform(v2)
+    e = v2 - v1
+    eunit, length = normalize(e)
+    normal = _sv_cross(jnp.ones_like(length) * -1, eunit)
+    numerator = _vmap_dot(normal, v1 - p1)  # (N,)
+    denominator = jnp.dot(normal, d)  # (N,)
+    t = numerator / denominator
+    p = jax.vmap(lambda ti: ti * d + p1)(t)  # (N, 2)
+    s = _vmap_dot(p - v1, eunit)
+    normal = jnp.where(jnp.expand_dims(numerator > 0.0, axis=1), -normal, normal)
+    return Raycast(  # type: ignore
+        fraction=t,
+        normal=normal,
+        hit=jnp.logical_and(
+            denominator != 0.0,
+            jnp.logical_and(
+                jnp.logical_and(t >= 0.0, t <= max_fraction),
+                jnp.logical_and(s >= 0.0, s <= length),
+            ),
+        ),
+    )
+
+
+def thin_polygon_raycast(
+    max_fraction: float | jax.Array,
+    p1: jax.Array,
+    p2: jax.Array,
+    polygon: Polygon,
+    state: State,
+) -> Raycast:
+    d = p2 - p1
+    v1, v2 = polygon.points[:-1], polygon.points[1:]
     v1, v2 = state.p.transform(v1), state.p.transform(v2)
     e = v2 - v1
     eunit, length = normalize(e)
