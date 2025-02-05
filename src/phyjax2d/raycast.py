@@ -89,15 +89,6 @@ def segment_raycast(
     )
 
 
-def _vmap_dot(xy1: jax.Array, xy2: jax.Array) -> jax.Array:
-    """Dot product between nested vectors"""
-    chex.assert_equal_shape((xy1, xy2))
-    orig_shape = xy1.shape
-    a = xy1.reshape(-1, orig_shape[-1])
-    b = xy2.reshape(-1, orig_shape[-1])
-    return jax.vmap(jnp.dot, in_axes=(0, 0))(a, b).reshape(*orig_shape[:-1])
-
-
 def thin_polygon_raycast(
     max_fraction: float | jax.Array,
     p1: jax.Array,
@@ -117,10 +108,10 @@ def thin_polygon_raycast(
     upper = jnp.min(jnp.where(denominator > 0.0, t, jnp.inf), axis=1)
     lower_cand = jnp.where(denominator < 0.0, t, jnp.inf)
     lower = jnp.min(lower_cand, axis=1)
-    idx = jnp.argmin(t, axis=1)
+    idx = jnp.argmin(lower_cand, axis=1)
     return Raycast(  # type: ignore
         fraction=lower,
-        normal=polygon.normals[:, *idx],
+        normal=polygon.normals[jnp.arange(idx.shape[0]), idx.ravel()],
         hit=jnp.logical_and(
             jnp.logical_and(lower >= 0.0, lower <= max_fraction),
             lower < upper,
