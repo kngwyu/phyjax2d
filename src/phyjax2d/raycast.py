@@ -100,10 +100,7 @@ def thin_polygon_raycast(
     d = state.p.transform(p2) - p1  # (N, 2)
     vp = polygon.points - jnp.expand_dims(p1, axis=1)  # (N, NP, 2)
     numerator = _vmap_dot(polygon.normals, vp)  # (N, NP)
-    denominator = jax.vmap(jax.vmap(jnp.dot, in_axes=(0, None)), in_axes=(0, 0))(
-        polygon.normals,
-        d,
-    )  # (N, NP)
+    denominator = jnp.einsum("npt,nt->np", polygon.normals, d)
     t = numerator / denominator
     upper = jnp.min(jnp.where(denominator > 0.0, t, jnp.inf), axis=1)
     lower_cand = jnp.where(denominator < 0.0, t, jnp.inf)
