@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 
 from phyjax2d.impl import (
     Circle,
+    Polygon,
     Segment,
     State,
-    normalize,
-    _vmap_dot,
     _sv_cross,
+    _vmap_dot,
+    normalize,
 )
 
 
@@ -84,5 +85,35 @@ def segment_raycast(
                 jnp.logical_and(t >= 0.0, t <= max_fraction),
                 jnp.logical_and(s >= 0.0, s <= length),
             ),
+        ),
+    )
+
+
+def thin_polygon_raycast(
+    max_fraction: float | jax.Array,
+    p1: jax.Array,
+    p2: jax.Array,
+    polygon: Polygon,
+    state: State,
+) -> Raycast:
+    p1 = state.p.transform(p1)  # (N, 2)
+    d = state.p.transform(p2) - p1  # (N, 2)
+    vp = polygon.points - jnp.expand_dims(p1, axis=1)  # (N, NP, 2)
+    numerator = _vmap_dot(polygon.normals, vp)  # (N, NP)
+    denominator = jax.vmap(jax.vmap(jnp.dot, in_axes=(0, None)), in_axes=(0, 0))(
+        polygon.normals,
+        d,
+    )  # (N, NP)
+    t = numerator / denominator
+    upper = jnp.min(jnp.where(denominator > 0.0, t, jnp.inf), axis=1)
+    lower_cand = jnp.where(denominator < 0.0, t, jnp.inf)
+    lower = jnp.min(lower_cand, axis=1)
+    idx = jnp.argmin(lower_cand, axis=1)
+    return Raycast(  # type: ignore
+        fraction=lower,
+        normal=polygon.normals[jnp.arange(idx.shape[0]), idx.ravel()],
+        hit=jnp.logical_and(
+            jnp.logical_and(lower >= 0.0, lower <= max_fraction),
+            lower < upper,
         ),
     )

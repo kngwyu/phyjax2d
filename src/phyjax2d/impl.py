@@ -16,7 +16,6 @@ import jax.numpy as jnp
 Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
-_INDEX = int | Sequence[int] | Sequence[bool] | jax.Array
 
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
@@ -119,8 +118,7 @@ class _PositionLike(Protocol):
     angle: jax.Array  # Angular velocity (N,)
     xy: jax.Array  # (N, 2)
 
-    def __init__(self, angle: jax.Array, xy: jax.Array) -> None:
-        ...
+    def __init__(self, angle: jax.Array, xy: jax.Array) -> None: ...
 
     def batch_size(self) -> int:
         return self.angle.shape[0]
@@ -817,6 +815,7 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
 }
 
 
+# TODO: pretty print
 @chex.dataclass
 class Space:
     gravity: jax.Array
@@ -834,9 +833,9 @@ class Space:
     bounce_threshold: float = 1.0
     max_velocity: float = 100.0
     max_angular_velocity: float = 100.0
-    no_collision_constraints: dict[
-        tuple[str, str], tuple[int, int]
-    ] = dataclasses.field(default_factory=dict)
+    no_collision_constraints: dict[tuple[str, str], tuple[int, int]] = (
+        dataclasses.field(default_factory=dict)
+    )
     _contact_offset: dict[tuple[str, str], tuple[int, int]] = dataclasses.field(
         default_factory=dict,
         init=False,
