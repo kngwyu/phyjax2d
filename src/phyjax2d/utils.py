@@ -20,9 +20,11 @@ from phyjax2d.impl import (
     Shape,
     ShapeDict,
     Space,
+    State,
     StateDict,
     _vmap_dot,
     empty,
+    normalize,
 )
 from phyjax2d.vec2d import Vec2d
 
@@ -517,6 +519,32 @@ def make_square_segments(
     return lines
 
 
+def _circle_polygon_overlap(
+    polygon: Polygon,
+    pstate: State,
+    xy: jax.Array,
+    radius: jax.Array | float,
+) -> jax.Array:
+    n_batch, n_vertices = polygon.points.shape[:2]
+    # Suppose that pstate.p.xy.shape == (N, 2) and xy.shape == (2,)
+    cxy = pstate.p.inv_transform(jnp.expand_dims(xy, axis=0))
+    p2cxy = jnp.expand_dims(cxy, axis=1) - polygon.points
+    separation = _vmap_dot(polygon.normals, (p2cxy - polygon.points))  # (N, NP)
+    max_sep = jnp.max(separation, axis=1)
+    i1 = jnp.argmax(separation, axis=1)
+    i2 = (i1 + 1) % n_vertices
+    select_all = jnp.arange(n_batch)
+    v1 = polygon.points[select_all, i1]
+    v2 = polygon.points[select_all, i2]
+    u1 = _vmap_dot(cxy - v1, v2 - v1)
+    u2 = _vmap_dot(cxy - v2, v1 - v2)
+    v = jnp.where(u1 < 0.0, v1, v2)
+    _, dist = normalize(cxy - v, axis=1)
+    c_out = dist < polygon.radius + radius
+    c_in = max_sep < polygon.radius + radius
+    return jax.lax.select(jnp.logical_or(u1 < 0.0, u2 < 0.0), c_out, c_in)
+
+
 def circle_overlap(
     shaped: ShapeDict,
     stated: StateDict,
@@ -545,6 +573,23 @@ def circle_overlap(
     # Circle-segment overlap
     if stated.segment is not None and shaped.segment is not None:
         spos = stated.segment.p
+        # Suppose that spos.shape == (N, 2) and xy.shape == (2,)
+        pb = spos.inv_transform(jnp.expand_dims(xy, axis=0))
+        p1, p2 = shaped.segment.point1, shaped.segment.point2
+        edge = p2 - p1
+        s1 = jnp.expand_dims(_vmap_dot(pb - p1, edge), axis=1)
+        s2 = jnp.expand_dims(_vmap_dot(p2 - pb, edge), axis=1)
+        in_segment = jnp.logical_and(s1 >= 0.0, s2 >= 0.0)
+        ee = jnp.sum(jnp.square(edge), axis=-1, keepdims=True)
+        pa = jnp.where(in_segment, p1 + edge * s1 / ee, jnp.where(s1 < 0.0, p1, p2))
+        dist = jnp.linalg.norm(pb - pa, axis=-1)
+        penetration = radius - dist
+        has_overlap = jnp.logical_and(stated.segment.is_active, penetration >= 0)
+        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
+
+    # Circle-segment overlap
+    if stated.segment is not None and shaped.segment is not None:
+        spos = stated.segment.p
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
         pb = spos.inv_transform(jnp.expand_dims(xy, axis=0))
         p1, p2 = shaped.segment.point1, shaped.segment.point2
@@ -557,6 +602,34 @@ def circle_overlap(
         dist = jnp.linalg.norm(pb - pa, axis=-1)
         penetration = radius - dist
         has_overlap = jnp.logical_and(stated.segment.is_active, penetration >= 0)
+        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
+
+    # Circle-polygon overlap
+    if stated.triangle is not None and shaped.trianlge is not None:
+        has_overlap = _circle_polygon_overlap(
+            shaped.triangle,
+            stated.triangle,
+            xy,
+            radius,
+        )
+        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
+
+    if stated.quadrangle is not None and shaped.quadrangle is not None:
+        has_overlap = _circle_polygon_overlap(
+            shaped.quadrangle,
+            stated.quadrangle,
+            xy,
+            radius,
+        )
+        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
+
+    if stated.pentagon is not None and shaped.pentagon is not None:
+        has_overlap = _circle_polygon_overlap(
+            shaped.pentagon,
+            stated.pentagon,
+            xy,
+            radius,
+        )
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     return overlap
