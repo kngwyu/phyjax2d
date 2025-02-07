@@ -605,7 +605,7 @@ def circle_overlap(
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     # Circle-polygon overlap
-    if stated.triangle is not None and shaped.trianlge is not None:
+    if stated.triangle is not None and shaped.triangle is not None:
         has_overlap = _circle_polygon_overlap(
             shaped.triangle,
             stated.triangle,
