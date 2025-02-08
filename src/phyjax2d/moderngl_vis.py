@@ -16,8 +16,7 @@ import numpy as np
 from moderngl_window.context import headless
 from numpy.typing import NDArray
 
-from phyjax2d import Circle, Polygon, Segment, Space, State, StateDict
-from phyjax2d.impl import Position
+from phyjax2d import Circle, Polygon, Position, Segment, Space, State, StateDict
 
 NOWHERE: float = -1000.0
 
@@ -451,7 +450,10 @@ class MglRenderer:
             )
         else:
             self._static_lines = None
-        points, colors = _collect_triangles(space.shaped.triangle, stated.triangle)
+        points, colors = _collect_triangles(
+            space.shaped.static_triangle,
+            stated.static_triangle,
+        )
         triangle_program = self._make_gl_program(
             vertex_shader=_TRIANGLE_VERTEX_SHADER,
             geometry_shader=_TRIANGLE_GEOMETRY_SHADER,
@@ -589,7 +591,10 @@ class MglRenderer:
             if self._static_circles.update(sc_points, sc_scale, sc_colors):
                 self._static_circles.render()
         if self._triangles is not None:
-            points, _ = _collect_triangles(self._space.shaped.triangle, stated.triangle)
+            points, _ = _collect_triangles(
+                self._space.shaped.static_triangle,
+                stated.static_triangle,
+            )
             if self._triangles.update(points):
                 self._triangles.render()
         if self._sensors is not None and self._collect_sensors is not None:

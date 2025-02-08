@@ -17,15 +17,6 @@ Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
 
-_ALL_POLYGON_KEYS = [
-    "triangle",
-    "static_triangle",
-    "quadrangle",
-    "static_quadrangle",
-    "pentagon",
-    "static_pentagon",
-]
-
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
     if x is None:
@@ -38,9 +29,9 @@ def normalize(
     x: jax.Array,
     axis: Sequence[int] | int | None = None,
 ) -> tuple[jax.Array, jax.Array]:
-    norm = jnp.linalg.norm(x, axis=axis)
+    norm = jnp.linalg.norm(x, axis=axis, keepdims=True)
     n = x / jnp.clip(norm, min=1e-6)
-    return n, norm
+    return n, jnp.squeeze(norm, axis=axis)
 
 
 def _vmap_dot(xy1: jax.Array, xy2: jax.Array) -> jax.Array:
@@ -213,6 +204,9 @@ class Shape(PyTreeOps):
 
     def batch_size(self) -> int:
         return self.mass.shape[0]
+
+    def is_empty(self) -> bool:
+        return self.batch_size() == 0
 
     def inv_mass(self) -> jax.Array:
         """To support static shape, set let inv_mass 0 if mass is infinite"""
@@ -584,7 +578,7 @@ class StateDict:
     def update(self, statec: State) -> Self:
         def _get(name: str) -> State:
             state = self[name]  # type: ignore
-            if state.batch_size() == 0:
+            if state.is_empty():
                 return state  # empty state
             else:
                 start = _offset(self, name)
@@ -819,6 +813,10 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
     ("capsule", "circle"): _capsule_to_circle,
     ("segment", "circle"): _segment_to_circle,
     ("triangle", "circle"): functools.partial(_polygon_to_circle, key="triangle"),
+    ("static_triangle", "circle"): functools.partial(
+        _polygon_to_circle,
+        key="static_triangle",
+    ),
     # ("triangle", "triangle"): functools.partial(
     #     _polygon_to_polygon,
     #     key1="triangle",
@@ -906,7 +904,7 @@ class Space:
         n2_idx: INDEX,
     ) -> None:
         start = 0
-        for (n1, n2), fn in _CONTACT_FUNCTIONS.items():
+        for n1, n2 in _CONTACT_FUNCTIONS.keys():
             ci = self._ci.get((n1, n2), None)
             if ci is not None:
                 n = ci.index1.shape[0]

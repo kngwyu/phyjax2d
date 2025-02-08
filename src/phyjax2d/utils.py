@@ -13,7 +13,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from phyjax2d.impl import (
-    _ALL_POLYGON_KEYS,
     Capsule,
     Circle,
     Polygon,
@@ -25,12 +24,20 @@ from phyjax2d.impl import (
     StateDict,
     _vmap_dot,
     empty,
-    normalize,
 )
 from phyjax2d.vec2d import Vec2d
 
 Self = Any
 _N_MAX_POLYGON_VERTICES = 6
+
+_ALL_POLYGON_KEYS = [
+    "triangle",
+    "static_triangle",
+    "quadrangle",
+    "static_quadrangle",
+    "pentagon",
+    "static_pentagon",
+]
 
 
 class Color(NamedTuple):
@@ -539,8 +546,8 @@ def _circle_polygon_overlap(
     v2 = polygon.points[select_all, i2]
     u1 = _vmap_dot(cxy - v1, v2 - v1)
     u2 = _vmap_dot(cxy - v2, v1 - v2)
-    v = jnp.where(u1 < 0.0, v1, v2)
-    _, dist = normalize(cxy - v, axis=1)
+    v = jnp.where(jnp.expand_dims(u1 < 0.0, axis=1), v1, v2)
+    dist = jnp.linalg.norm(cxy - v, axis=1)
     c_out = dist < polygon.radius + radius
     c_in = max_sep < polygon.radius + radius
     return jax.lax.select(jnp.logical_or(u1 < 0.0, u2 < 0.0), c_out, c_in)
@@ -554,7 +561,7 @@ def circle_overlap(
 ) -> jax.Array:
     # Circle overlap
     overlap = jnp.array(False)
-    if not stated.circle.is_empty():
+    if not stated.circle.is_empty() and not shaped.circle.is_empty():
         cpos = stated.circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
         dist = jnp.linalg.norm(cpos - jnp.expand_dims(xy, axis=0), axis=-1)
@@ -563,7 +570,7 @@ def circle_overlap(
         overlap = jnp.any(has_overlap)
 
     # Static_circle overlap
-    if not stated.static_circle.is_empty():
+    if not stated.static_circle.is_empty() and not shaped.static_circle.is_empty():
         cpos = stated.static_circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
         dist = jnp.linalg.norm(cpos - jnp.expand_dims(xy, axis=0), axis=-1)
@@ -572,7 +579,7 @@ def circle_overlap(
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     # Circle-segment overlap
-    if not stated.segment.is_empty():
+    if not stated.segment.is_empty() and not shaped.segment.is_empty():
         spos = stated.segment.p
         # Suppose that spos.shape == (N, 2) and xy.shape == (2,)
         pb = spos.inv_transform(jnp.expand_dims(xy, axis=0))
@@ -589,9 +596,8 @@ def circle_overlap(
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     # Circle-polygon overlap
-    print("before", overlap)
     for key in _ALL_POLYGON_KEYS:
-        if not stated[key].is_empty():  # type: ignore
+        if not stated[key].is_empty() and not shaped[key].is_empty():  # type: ignore
             has_overlap = _circle_polygon_overlap(
                 shaped[key],  # type: ignore
                 stated[key],  # type: ignore

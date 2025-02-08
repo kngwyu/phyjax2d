@@ -14,6 +14,8 @@ def space() -> Space:
     builder.add_circle(radius=2.0)
     builder.add_segment(p1=Vec2d(-2.0, 0.0), p2=Vec2d(2.0, 0.0))
     builder.add_segment(p1=Vec2d(0.0, -2.0), p2=Vec2d(0.0, 2.0))
+    builder.add_polygon(points=[Vec2d(2.0, 0.0), Vec2d(0.0, 2.0), Vec2d(0.0, 0.0)])
+    builder.add_polygon(points=[Vec2d(2.0, 0.0), Vec2d(2.0, 2.0), Vec2d(0.0, 0.0)])
     return builder.build()
 
 
@@ -46,4 +48,18 @@ def test_circle_to_segment(space: Space) -> None:
     chex.assert_trees_all_close(
         contact.pos[-2:],
         jnp.array([[4.5, 2.0], [4.0, 6.0]]),
+    )
+
+
+def test_circle_to_triangle(space: Space) -> None:
+    sd = space.zeros_state().nested_replace(
+        "circle.p.xy",
+        jnp.array([[1.0, 2.0], [3.0, 2.0], [4.0, 5.9]]),
+    )
+    sd = sd.nested_replace("triangle.p.xy", jnp.array([[0.0, 3.5], [4.0, 4.0]]))
+    contact = space.check_contacts_selected(sd, ("triangle", "circle"))
+    has_contact = contact.penetration >= 0
+    chex.assert_trees_all_close(
+        has_contact,
+        jnp.array([False, True, False, False, False, True]),
     )
