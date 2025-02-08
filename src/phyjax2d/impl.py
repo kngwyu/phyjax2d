@@ -17,6 +17,15 @@ Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
 
+_ALL_POLYGON_KEYS = [
+    "triangle",
+    "static_triangle",
+    "quadrangle",
+    "static_quadrangle",
+    "pentagon",
+    "static_pentagon",
+]
+
 
 def then(x: Any, f: Callable[[Any], Any]) -> Any:
     if x is None:
@@ -510,6 +519,9 @@ class State(PyTreeOps):
             is_active=jnp.ones(n, dtype=bool),
             label=jnp.zeros(n, dtype=jnp.uint8),
         )
+
+    def is_empty(self) -> bool:
+        return self.p.batch_size() == 0
 
     def apply_force_global(self, point: jax.Array, force: jax.Array) -> Self:
         chex.assert_equal_shape((self.f.xy, force))

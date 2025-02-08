@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from phyjax2d.impl import (
+    _ALL_POLYGON_KEYS,
     Capsule,
     Circle,
     Polygon,
@@ -529,7 +530,7 @@ def _circle_polygon_overlap(
     # Suppose that pstate.p.xy.shape == (N, 2) and xy.shape == (2,)
     cxy = pstate.p.inv_transform(jnp.expand_dims(xy, axis=0))
     p2cxy = jnp.expand_dims(cxy, axis=1) - polygon.points
-    separation = _vmap_dot(polygon.normals, (p2cxy - polygon.points))  # (N, NP)
+    separation = _vmap_dot(polygon.normals, p2cxy)  # (N, NP)
     max_sep = jnp.max(separation, axis=1)
     i1 = jnp.argmax(separation, axis=1)
     i2 = (i1 + 1) % n_vertices
@@ -553,7 +554,7 @@ def circle_overlap(
 ) -> jax.Array:
     # Circle overlap
     overlap = jnp.array(False)
-    if stated.circle is not None and shaped.circle is not None:
+    if not stated.circle.is_empty():
         cpos = stated.circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
         dist = jnp.linalg.norm(cpos - jnp.expand_dims(xy, axis=0), axis=-1)
@@ -562,7 +563,7 @@ def circle_overlap(
         overlap = jnp.any(has_overlap)
 
     # Static_circle overlap
-    if stated.static_circle is not None and shaped.static_circle is not None:
+    if not stated.static_circle.is_empty():
         cpos = stated.static_circle.p.xy
         # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
         dist = jnp.linalg.norm(cpos - jnp.expand_dims(xy, axis=0), axis=-1)
@@ -571,7 +572,7 @@ def circle_overlap(
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     # Circle-segment overlap
-    if stated.segment is not None and shaped.segment is not None:
+    if not stated.segment.is_empty():
         spos = stated.segment.p
         # Suppose that spos.shape == (N, 2) and xy.shape == (2,)
         pb = spos.inv_transform(jnp.expand_dims(xy, axis=0))
@@ -587,49 +588,16 @@ def circle_overlap(
         has_overlap = jnp.logical_and(stated.segment.is_active, penetration >= 0)
         overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
-    # Circle-segment overlap
-    if stated.segment is not None and shaped.segment is not None:
-        spos = stated.segment.p
-        # Suppose that cpos.shape == (N, 2) and xy.shape == (2,)
-        pb = spos.inv_transform(jnp.expand_dims(xy, axis=0))
-        p1, p2 = shaped.segment.point1, shaped.segment.point2
-        edge = p2 - p1
-        s1 = jnp.expand_dims(_vmap_dot(pb - p1, edge), axis=1)
-        s2 = jnp.expand_dims(_vmap_dot(p2 - pb, edge), axis=1)
-        in_segment = jnp.logical_and(s1 >= 0.0, s2 >= 0.0)
-        ee = jnp.sum(jnp.square(edge), axis=-1, keepdims=True)
-        pa = jnp.where(in_segment, p1 + edge * s1 / ee, jnp.where(s1 < 0.0, p1, p2))
-        dist = jnp.linalg.norm(pb - pa, axis=-1)
-        penetration = radius - dist
-        has_overlap = jnp.logical_and(stated.segment.is_active, penetration >= 0)
-        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
-
     # Circle-polygon overlap
-    if stated.triangle is not None and shaped.triangle is not None:
-        has_overlap = _circle_polygon_overlap(
-            shaped.triangle,
-            stated.triangle,
-            xy,
-            radius,
-        )
-        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
-
-    if stated.quadrangle is not None and shaped.quadrangle is not None:
-        has_overlap = _circle_polygon_overlap(
-            shaped.quadrangle,
-            stated.quadrangle,
-            xy,
-            radius,
-        )
-        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
-
-    if stated.pentagon is not None and shaped.pentagon is not None:
-        has_overlap = _circle_polygon_overlap(
-            shaped.pentagon,
-            stated.pentagon,
-            xy,
-            radius,
-        )
-        overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
+    print("before", overlap)
+    for key in _ALL_POLYGON_KEYS:
+        if not stated[key].is_empty():  # type: ignore
+            has_overlap = _circle_polygon_overlap(
+                shaped[key],  # type: ignore
+                stated[key],  # type: ignore
+                xy,
+                radius,
+            )
+            overlap = jnp.logical_or(jnp.any(has_overlap), overlap)
 
     return overlap
