@@ -77,7 +77,7 @@ class PyTreeOps:
         return jax.tree_util.tree_map(lambda x: x / o, self)
 
     @jax.jit
-    def get_slice(self, index: INDEX) -> Self:
+    def get_slice(self, index: Sequence[int] | int | None) -> Self:
         return jax.tree_util.tree_map(lambda x: x[index], self)
 
     def split(self, split_index: int) -> tuple[Self, Self]:
@@ -900,8 +900,8 @@ class Space:
         self,
         target_n1: str,
         target_n2: str,
-        n1_idx: INDEX,
-        n2_idx: INDEX,
+        n1_idx: Sequence[int] | int | None,
+        n2_idx: Sequence[int] | int | None,
     ) -> None:
         start = 0
         for n1, n2 in _CONTACT_FUNCTIONS.keys():
