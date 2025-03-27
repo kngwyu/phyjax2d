@@ -37,7 +37,11 @@ _ALL_POLYGON_KEYS = [
     "static_quadrangle",
     "pentagon",
     "static_pentagon",
+    "hexagon",
+    "static_hexagon",
 ]
+
+_POLYGON_NAMES = {3: "triangle", 4: "quadrangle", 5: "pentagon", 6: "hexagon"}
 
 
 class Color(NamedTuple):
@@ -197,6 +201,10 @@ class SpaceBuilder:
     bounce_threshold: float = 1.0
     max_velocity: float | None = None
     max_angular_velocity: float | None = None
+    _ignore_constraints: dict[tuple[str, str], list[int]] = dataclasses.field(
+        default_factory=lambda: defaultdict(list),
+        init=False,
+    )
 
     def add_circle(
         self,
@@ -206,6 +214,7 @@ class SpaceBuilder:
         is_static: bool = False,
         friction: float = 0.8,
         elasticity: float = 0.8,
+        ignore: list[str] | None = None,
         color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
@@ -224,8 +233,18 @@ class SpaceBuilder:
             rgba=jnp.array(color),
         )
         if is_static:
+            self._add_ignore_constraint(
+                this="static_circle",
+                index=len(self.static_circles),
+                ignore=ignore,
+            )
             self.static_circles.append(circle)
         else:
+            self._add_ignore_constraint(
+                this="circle",
+                index=len(self.circles),
+                ignore=ignore,
+            )
             self.circles.append(circle)
 
     def add_capsule(
@@ -238,6 +257,7 @@ class SpaceBuilder:
         is_static: bool = False,
         friction: float = 0.8,
         elasticity: float = 0.8,
+        ignore: list[str] | None = None,
         color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
@@ -261,8 +281,18 @@ class SpaceBuilder:
             rgba=jnp.array(color),
         )
         if is_static:
+            self._add_ignore_constraint(
+                this="static_capsule",
+                index=len(self.static_capsules),
+                ignore=ignore,
+            )
             self.static_capsules.append(capsule)
         else:
+            self._add_ignore_constraint(
+                this="capsule",
+                index=len(self.capsules),
+                ignore=ignore,
+            )
             self.capsules.append(capsule)
 
     def add_segment(
@@ -272,6 +302,7 @@ class SpaceBuilder:
         p2: Vec2d,
         friction: float = 0.8,
         elasticity: float = 0.8,
+        ignore: list[str] | None = None,
         color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
@@ -293,6 +324,11 @@ class SpaceBuilder:
             friction=jnp.array(friction),
             rgba=jnp.array(color),
         )
+        self._add_ignore_constraint(
+            this="segment",
+            index=len(self.segments),
+            ignore=ignore,
+        )
         self.segments.append(segment)
 
     def add_polygon(
@@ -304,6 +340,7 @@ class SpaceBuilder:
         elasticity: float = 0.8,
         density: float = 1.0,
         is_static: bool = False,
+        ignore: list[str] | None = None,
         color: Color = _BLACK,
     ) -> None:
         _check_params_positive(
@@ -339,6 +376,7 @@ class SpaceBuilder:
             elasticity=elasticity,
             density=density,
             is_static=is_static,
+            ignore=ignore,
             rgba=color,
         )
 
@@ -352,6 +390,7 @@ class SpaceBuilder:
         elasticity: float = 0.8,
         density: float = 1.0,
         is_static: bool = False,
+        ignore: list[str] | None = None,
         color: Color = _BLACK,
     ) -> None:
         a = Vec2d(width / 2, height / 2)
@@ -366,6 +405,7 @@ class SpaceBuilder:
             elasticity=elasticity,
             density=density,
             is_static=is_static,
+            ignore=ignore,
             rgba=color,
         )
 
@@ -379,6 +419,7 @@ class SpaceBuilder:
         elasticity: float = 0.8,
         density: float = 1.0,
         is_static: bool = False,
+        ignore: list[str] | None = None,
         rgba: Color = _BLACK,
     ) -> None:
         # Compute normal
@@ -405,9 +446,26 @@ class SpaceBuilder:
         )
         n = len(points)
         if is_static:
+            self._add_ignore_constraint(
+                this="static_" + _POLYGON_NAMES[n],
+                index=len(self.polygons[n]),
+                ignore=ignore,
+            )
             self.static_polygons[n].append(polygon)
         else:
+            self._add_ignore_constraint(
+                this=_POLYGON_NAMES[n],
+                index=len(self.polygons[n]),
+                ignore=ignore,
+            )
             self.polygons[n].append(polygon)
+
+    def _add_ignore_constraint(
+        self, this: str, index: int, ignore: list[str] | None = None
+    ) -> None:
+        if ignore is not None:
+            for ignore_name in ignore:
+                self._ignore_constraints[this, ignore_name].append(index)
 
     def add_chain_segments(
         self,
@@ -477,6 +535,7 @@ class SpaceBuilder:
             bounce_threshold=self.bounce_threshold,
             max_velocity=max_velocity,
             max_angular_velocity=max_angular_velocity,
+            ignore_collision=self._ignore_constraints,
         )
 
 

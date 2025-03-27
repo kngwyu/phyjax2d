@@ -6,7 +6,7 @@ import dataclasses
 import functools
 import uuid
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import InitVar, replace
 from typing import Any, Callable, Generic, Protocol, TypeVar
 
 import chex
@@ -686,9 +686,20 @@ class ContactIndices(Generic[S1, S2]):
     index2: jax.Array
 
 
-def _self_ci(shape: Shape) -> ContactIndices:
-    n = shape.batch_size()
+@dataclasses.dataclass
+class _ContactConstraint:
+    s1_ignore: jax.Array
+    s2_ignore: jax.Array
+
+
+def _self_ci(shape: Shape, constraint: _ContactConstraint) -> ContactIndices:
+    n = shape.batch_size() - len(constraint.s1_ignore)
     index1, index2 = jax.jit(jnp.triu_indices, static_argnums=(0, 1))(n, 1)
+
+    all_indices = jnp.arange(shape.batch_size())
+    mapping = all_indices[~jnp.isin(all_indices, constraint.s1_ignore)]
+    index1 = mapping[index1]
+    index2 = mapping[index2]
     return ContactIndices(
         shape1=shape.get_slice(index1),
         shape2=shape.get_slice(index2),
@@ -697,7 +708,11 @@ def _self_ci(shape: Shape) -> ContactIndices:
     )
 
 
-def _pair_ci(shape1: Shape, shape2: Shape) -> ContactIndices:
+def _pair_ci(
+    shape1: Shape,
+    shape2: Shape,
+    constraint: _ContactConstraint,
+) -> ContactIndices:
     @functools.partial(jax.jit, static_argnums=(1,))
     def pair_outer(x: jax.Array, reps: int) -> jax.Array:
         return jnp.repeat(x, reps, axis=0, total_repeat_length=x.shape[0] * reps)
@@ -706,9 +721,23 @@ def _pair_ci(shape1: Shape, shape2: Shape) -> ContactIndices:
     def pair_inner(x: jax.Array, reps: int) -> jax.Array:
         return jnp.tile(x, (reps,) + (1,) * (x.ndim - 1))
 
-    n1, n2 = shape1.batch_size(), shape2.batch_size()
+    def _remove_ignored_indices(
+        mapped_array: jax.Array,
+        ignore_array: jax.Array,
+    ) -> jax.Array:
+        n_ignore = len(ignore_array)
+        if n_ignore == 0:
+            return mapped_array
+        all_indices = jnp.arange(len(mapped_array) + n_ignore)
+        mapping = all_indices[~jnp.isin(all_indices, ignore_array)]
+        return mapping[mapped_array]
+
+    n1 = shape1.batch_size() - len(constraint.s1_ignore)
+    n2 = shape2.batch_size() - len(constraint.s2_ignore)
     index1 = pair_outer(jnp.arange(n1), reps=n2)
     index2 = pair_inner(jnp.arange(n2), reps=n1)
+    index1 = _remove_ignored_indices(index1, constraint.s1_ignore)
+    index2 = _remove_ignored_indices(index2, constraint.s2_ignore)
     return ContactIndices(
         shape1=shape1.get_slice(index1),
         shape2=shape2.get_slice(index2),
@@ -843,10 +872,12 @@ class Space:
     bounce_threshold: float = 1.0
     max_velocity: float = 100.0
     max_angular_velocity: float = 100.0
-    no_collision_constraints: dict[tuple[str, str], tuple[int, int]] = (
-        dataclasses.field(default_factory=dict)
-    )
+    ignore_collision: InitVar[dict[tuple[str, str], list[int]] | None] = None
     _contact_offset: dict[tuple[str, str], tuple[int, int]] = dataclasses.field(
+        default_factory=dict,
+        init=False,
+    )
+    _n_contacts: dict[tuple[str, str], int] = dataclasses.field(
         default_factory=dict,
         init=False,
     )
@@ -854,8 +885,11 @@ class Space:
         default_factory=dict,
         init=False,
     )
+    _cc: dict[tuple[str, str], _ContactConstraint] = dataclasses.field(
+        default_factory=dict,
+        init=False,
+    )
     _ci_total: ContactIndices = dataclasses.field(init=False)
-    _ignore_flags: jax.Array = dataclasses.field(init=False)
     _hash_key: uuid.UUID = dataclasses.field(default_factory=uuid.uuid4, init=False)
 
     def __hash__(self) -> int:
@@ -864,21 +898,38 @@ class Space:
     def __eq__(self, other: Any) -> bool:
         return self._hash_key == other._hash_key
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        ignore_collision: dict[tuple[str, str], list] | None,
+    ) -> None:
+        def get_collision_constraint(n1: str, n2: str) -> _ContactConstraint:
+            if ignore_collision is None:
+                return _ContactConstraint(
+                    s1_ignore=jnp.array([]),
+                    s2_ignore=jnp.array([]),
+                )
+            ignore_n1 = ignore_collision.get((n1, n2), [])
+            ignore_n2 = ignore_collision.get((n2, n1), [])
+            return _ContactConstraint(jnp.array(ignore_n1), jnp.array(ignore_n2))
+
         ci_slided_list = []
         offset = 0
         total_ci_len = 0
         for n1, n2 in _CONTACT_FUNCTIONS.keys():
             shape1, shape2 = self.shaped[n1], self.shaped[n2]  # type: ignore
             if shape1.batch_size() > 0 and shape2.batch_size() > 0:
+                cc = get_collision_constraint(n1, n2)
                 if n1 == n2:
-                    ci = _self_ci(shape1)  # Type
+                    ci = _self_ci(shape1, constraint=cc)  # Type
                 else:
-                    ci = _pair_ci(shape1, shape2)
+                    ci = _pair_ci(shape1, shape2, constraint=cc)
+                self._cc[n1, n2] = cc
                 self._ci[n1, n2] = ci
-                total_ci_len += ci.index1.shape[0]
+                n_contacts = ci.index1.shape[0]
+                total_ci_len += n_contacts
+                self._n_contacts[n1, n2] = n_contacts
                 offset_start = offset
-                offset += ci.shape1.batch_size()
+                offset += n_contacts
                 self._contact_offset[n1, n2] = offset_start, offset
                 offset1, offset2 = _offset(self.shaped, n1), _offset(self.shaped, n2)
                 # Add some offset for global indices
@@ -894,32 +945,8 @@ class Space:
             lambda *args: jnp.concatenate(args, axis=0),
             *ci_slided_list,
         )
-        self._ignore_flags = jnp.zeros(total_ci_len, dtype=bool)
 
-    def set_ignore_flags_by_indices(
-        self,
-        target_n1: str,
-        target_n2: str,
-        n1_idx: Sequence[int] | int | None,
-        n2_idx: Sequence[int] | int | None,
-    ) -> None:
-        start = 0
-        for n1, n2 in _CONTACT_FUNCTIONS.keys():
-            ci = self._ci.get((n1, n2), None)
-            if ci is not None:
-                n = ci.index1.shape[0]
-                if target_n1 == n1 and target_n2 == n2:
-                    false_array = jnp.zeros(n, dtype=bool)
-                    flag1 = false_array.at[n1_idx].set(True)[ci.index1]
-                    flag2 = false_array.at[n2_idx].set(True)[ci.index2]
-                    self._ignore_flags = self._ignore_flags.at[start : start + n].set(
-                        jnp.logical_and(flag1, flag2)
-                    )
-                    return
-                else:
-                    start += n
-
-    def check_contacts(self, stated: StateDict) -> jax.Array:
+    def check_contacts(self, stated: StateDict) -> Contact:
         contacts = []
         for (n1, n2), fn in _CONTACT_FUNCTIONS.items():
             ci = self._ci.get((n1, n2), None)
@@ -943,23 +970,13 @@ class Space:
         else:
             return None
 
-    def n_possible_contacts(self) -> int:
-        n = 0
-        for n1, n2 in _CONTACT_FUNCTIONS.keys():
-            shape1, shape2 = self.shaped[n1], self.shaped[n2]  # type: ignore
-            len1, len2 = shape1.batch_size(), shape2.batch_size()
-            if n1 == n2:
-                n += len1 * (len1 - 1) // 2
-            else:
-                n += len1 * len2
-        return n
-
     def get_contact_mat(self, n1: str, n2: str, contact: jax.Array) -> jax.Array:
         contact_offset = self._contact_offset.get((n1, n2), None)
         assert contact_offset is not None
         from_, to = contact_offset
-        size1 = self.shaped[n1].batch_size()  # type: ignore
-        size2 = self.shaped[n2].batch_size()  # type: ignore
+        cc = self._cc[n1, n2]
+        size1 = self.shaped[n1].batch_size() - len(cc.s1_ignore)  # type: ignore
+        size2 = self.shaped[n2].batch_size() - len(cc.s2_ignore)  # type: ignore
         cnt = contact[from_:to]
         if n1 == n2:
             ret = jnp.zeros((size1, size1), dtype=bool)
@@ -969,7 +986,7 @@ class Space:
             return contact[from_:to].reshape(size1, size2)
 
     def init_solver(self) -> VelocitySolver:
-        n = self.n_possible_contacts()
+        n = sum(self._n_contacts.values())
         return VelocitySolver(
             v1=jnp.zeros((n, 3)),
             v2=jnp.zeros((n, 3)),
@@ -1320,10 +1337,7 @@ def step(
 ) -> tuple[StateDict, VelocitySolver, Contact]:
     state = update_velocity(space, space.shaped.concat(), stated.concat())
     contact = space.check_contacts(stated.update(state))
-    penetration_allowed = jnp.logical_and(
-        contact.penetration >= space.speculative_distance,
-        jnp.logical_not(space._ignore_flags),
-    )
+    penetration_allowed = contact.penetration >= space.speculative_distance
     v, p, solver = solve_constraints(
         space,
         solver.update(penetration_allowed),
