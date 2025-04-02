@@ -1,5 +1,5 @@
 """
-A simple,  fast visualizer based on moderngl.
+A simple and fast visualizer based on moderngl.
 Currently, only supports circles and lines.
 """
 
@@ -568,7 +568,12 @@ class MglRenderer:
         stated: StateDict,
         circle_colors: NDArray | None = None,
         sc_colors: NDArray | None = None,
+        points_offset: NDArray | None = None,
     ) -> None:
+        if points_offset is None:
+            po = np.array([[0.0, 0.0]])
+        else:
+            po = points_offset.astype(np.float32).reshape(1, 2)
         circle_points, circle_scale, circle_colors_default = _collect_circles(
             self._space.shaped.circle,
             stated.circle,
@@ -576,7 +581,9 @@ class MglRenderer:
         )
         if self._circles is not None:
             circle_colors = self._get_colors(circle_colors_default, circle_colors)
-            if self._circles.update(circle_points, circle_scale, circle_colors):
+            if self._circles.update(
+                circle_points + circle_points, circle_scale, circle_colors
+            ):
                 self._circles.render()
         if self._static_circles is not None:
             sc_points, sc_scale, _ = _collect_circles(
@@ -588,19 +595,22 @@ class MglRenderer:
                 _get_sc_color(self._sc_color, stated.static_circle),
                 sc_colors,
             )
-            if self._static_circles.update(sc_points, sc_scale, sc_colors):
+            if self._static_circles.update(sc_points + po, sc_scale, sc_colors):
                 self._static_circles.render()
         if self._triangles is not None:
             points, _ = _collect_triangles(
                 self._space.shaped.static_triangle,
                 stated.static_triangle,
             )
-            if self._triangles.update(points):
+            if self._triangles.update(points + po):
                 self._triangles.render()
         if self._sensors is not None and self._collect_sensors is not None:
-            if self._sensors.update(self._collect_sensors(stated)):
+            if self._sensors.update(self._collect_sensors(stated) + po):
                 self._sensors.render()
-        if self._heads.update(_collect_heads(self._space.shaped.circle, stated.circle)):
+        if (
+            self._heads.update(_collect_heads(self._space.shaped.circle, stated.circle))
+            + po
+        ):
             self._heads.render()
         if self._static_lines is not None:
             self._static_lines.render()
