@@ -1,5 +1,5 @@
 """
-A simple,  fast visualizer based on moderngl.
+A simple and fast visualizer based on moderngl.
 Currently, only supports circles and lines.
 """
 
@@ -402,12 +402,14 @@ class MglRenderer:
             vertex_shader=_CIRCLE_VERTEX_SHADER,
             fragment_shader=_CIRCLE_FRAGMENT_SHADER,
         )
-        points, scales, colors = _collect_circles(
-            space.shaped.circle,
-            stated.circle,
-            self._circle_scaling,
-        )
-        if len(points) > 0:
+        if space.shaped.circle.is_empty():
+            self._circles = None
+        else:
+            points, scales, colors = _collect_circles(
+                space.shaped.circle,
+                stated.circle,
+                self._circle_scaling,
+            )
             self._circles = CircleVA(
                 ctx=context,
                 program=circle_program,
@@ -415,14 +417,14 @@ class MglRenderer:
                 scales=scales,
                 colors=colors,
             )
+        if space.shaped.static_circle.is_empty():
+            self._static_circles = None
         else:
-            self._circles = None
-        points, scales, _ = _collect_circles(
-            space.shaped.static_circle,
-            stated.static_circle,
-            self._circle_scaling,
-        )
-        if len(points) > 0:
+            points, scales, _ = _collect_circles(
+                space.shaped.static_circle,
+                stated.static_circle,
+                self._circle_scaling,
+            )
             self._static_circles = CircleVA(
                 ctx=context,
                 program=circle_program,
@@ -430,44 +432,46 @@ class MglRenderer:
                 scales=scales,
                 colors=_get_sc_color(self._sc_color, stated.static_circle),
             )
+        if space.shaped.segment.is_empty():
+            self._static_lines = None
         else:
-            self._static_circles = None
-        static_segment_program = self._make_gl_program(
-            vertex_shader=_LINE_VERTEX_SHADER,
-            geometry_shader=_LINE_GEOMETRY_SHADER,
-            fragment_shader=_LINE_FRAGMENT_SHADER,
-            color=np.array([0.0, 0.0, 0.0, 0.4], dtype=np.float32),
-            width=np.array([0.004], dtype=np.float32),
-            w_rad=np.array([0.001], dtype=np.float32),
-            l_rad=np.array([0.001], dtype=np.float32),
-        )
-        points = _collect_static_lines(space.shaped.segment, stated.segment)
-        if len(points) > 0:
+            static_segment_program = self._make_gl_program(
+                vertex_shader=_LINE_VERTEX_SHADER,
+                geometry_shader=_LINE_GEOMETRY_SHADER,
+                fragment_shader=_LINE_FRAGMENT_SHADER,
+                color=np.array([0.0, 0.0, 0.0, 0.4], dtype=np.float32),
+                width=np.array([0.004], dtype=np.float32),
+                w_rad=np.array([0.001], dtype=np.float32),
+                l_rad=np.array([0.001], dtype=np.float32),
+            )
+            self._static_line_points = _collect_static_lines(
+                space.shaped.segment,
+                stated.segment,
+            )
             self._static_lines = SegmentVA(
                 ctx=context,
                 program=static_segment_program,
                 segments=points,
             )
+
+        if space.shaped.static_triangle.is_empty():
+            self._triangles = None
         else:
-            self._static_lines = None
-        points, colors = _collect_triangles(
-            space.shaped.static_triangle,
-            stated.static_triangle,
-        )
-        triangle_program = self._make_gl_program(
-            vertex_shader=_TRIANGLE_VERTEX_SHADER,
-            geometry_shader=_TRIANGLE_GEOMETRY_SHADER,
-            fragment_shader=_TRIANGLE_FRAGMENT_SHADER,
-        )
-        if len(points) > 0:
+            points, colors = _collect_triangles(
+                space.shaped.static_triangle,
+                stated.static_triangle,
+            )
+            triangle_program = self._make_gl_program(
+                vertex_shader=_TRIANGLE_VERTEX_SHADER,
+                geometry_shader=_TRIANGLE_GEOMETRY_SHADER,
+                fragment_shader=_TRIANGLE_FRAGMENT_SHADER,
+            )
             self._triangles = TriangleVA(
                 ctx=context,
                 program=triangle_program,
                 vertices=points,
                 colors=colors,
             )
-        else:
-            self._triangles = None
 
         if sensor_fn is not None:
             segment_program = self._make_gl_program(
@@ -568,7 +572,12 @@ class MglRenderer:
         stated: StateDict,
         circle_colors: NDArray | None = None,
         sc_colors: NDArray | None = None,
+        point_offset: NDArray | None = None,
     ) -> None:
+        if point_offset is None:
+            po = np.array([[0.0, 0.0]], dtype=np.float32)
+        else:
+            po = point_offset.astype(np.float32).reshape(1, 2)
         circle_points, circle_scale, circle_colors_default = _collect_circles(
             self._space.shaped.circle,
             stated.circle,
@@ -576,7 +585,7 @@ class MglRenderer:
         )
         if self._circles is not None:
             circle_colors = self._get_colors(circle_colors_default, circle_colors)
-            if self._circles.update(circle_points, circle_scale, circle_colors):
+            if self._circles.update(circle_points + po, circle_scale, circle_colors):
                 self._circles.render()
         if self._static_circles is not None:
             sc_points, sc_scale, _ = _collect_circles(
@@ -588,22 +597,25 @@ class MglRenderer:
                 _get_sc_color(self._sc_color, stated.static_circle),
                 sc_colors,
             )
-            if self._static_circles.update(sc_points, sc_scale, sc_colors):
+            if self._static_circles.update(sc_points + po, sc_scale, sc_colors):
                 self._static_circles.render()
         if self._triangles is not None:
             points, _ = _collect_triangles(
                 self._space.shaped.static_triangle,
                 stated.static_triangle,
             )
-            if self._triangles.update(points):
+            if self._triangles.update(points + po):
                 self._triangles.render()
         if self._sensors is not None and self._collect_sensors is not None:
-            if self._sensors.update(self._collect_sensors(stated)):
+            if self._sensors.update(self._collect_sensors(stated) + po):
                 self._sensors.render()
-        if self._heads.update(_collect_heads(self._space.shaped.circle, stated.circle)):
+        if self._heads.update(
+            _collect_heads(self._space.shaped.circle, stated.circle) + po
+        ):
             self._heads.render()
         if self._static_lines is not None:
-            self._static_lines.render()
+            if self._static_lines.update(self._static_line_points + po):
+                self._static_lines.render()
 
 
 class MglVisualizer:
