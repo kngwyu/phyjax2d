@@ -374,6 +374,7 @@ class MglRenderer:
         voffsets: tuple[int, ...] = (),
         hoffsets: tuple[int, ...] = (),
         sc_color_opt: NDArray | None = None,
+        head_color_opt: NDArray | None = None,
         sensor_color: NDArray | None = None,
         sensor_width: float = 0.001,
         sensor_fn: Callable[[StateDict], tuple[NDArray, NDArray]] | None = None,
@@ -513,11 +514,16 @@ class MglRenderer:
         else:
             self._sensors, self._collect_sensors = None, None
 
+        if head_color_opt is None:
+            head_color = np.array([0.5, 0.0, 1.0, 1.0], dtype=np.float32)
+        else:
+            head_color = head_color_opt
+
         head_program = self._make_gl_program(
             vertex_shader=_LINE_VERTEX_SHADER,
             geometry_shader=_LINE_GEOMETRY_SHADER,
             fragment_shader=_LINE_FRAGMENT_SHADER,
-            color=np.array([0.5, 0.0, 1.0, 1.0], dtype=np.float32),
+            color=head_color.astype(np.float32),
             width=np.array([0.004], dtype=np.float32),
         )
         self._heads = SegmentVA(
@@ -631,6 +637,7 @@ class MglVisualizer:
         space: Space,
         stated: StateDict,
         sc_color: NDArray | None = None,
+        head_color: NDArray | None = None,
         sensor_color: NDArray | None = None,
         figsize: tuple[float, float] | None = None,
         voffsets: tuple[int, ...] = (),
@@ -665,6 +672,7 @@ class MglVisualizer:
             voffsets=voffsets,
             hoffsets=hoffsets,
             sc_color_opt=sc_color,
+            head_color_opt=head_color,
             sensor_color=sensor_color,
             sensor_width=sensor_width,
             sensor_fn=sensor_fn,
