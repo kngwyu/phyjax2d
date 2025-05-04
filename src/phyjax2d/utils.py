@@ -98,7 +98,10 @@ def _polygon_mass(
     normals: list[Vec2d],
     radius: float,
     density: float,
+    is_static: bool,
 ) -> tuple[jax.Array, jax.Array]:
+    if is_static:
+        return jnp.array(jnp.inf), jnp.array(jnp.inf)
     vertices = deepcopy(points)
     n = len(vertices)
     # If the polygon is rounded, approximate mass by pushing out vertices
@@ -432,7 +435,8 @@ class SpaceBuilder:
             # Rotate the edge 90 degree right and normalize it
             normals.append(edge.perpendicular_right().normalized())
 
-        mass, moment = _polygon_mass(points, normals, radius, density)
+        mass, moment = _polygon_mass(points, normals, radius, density, is_static)
+        n = len(points)
         polygon = Polygon(
             points=jnp.array(points),
             normals=jnp.array(normals),
@@ -444,7 +448,6 @@ class SpaceBuilder:
             friction=jnp.array(friction),
             rgba=jnp.array(rgba),
         )
-        n = len(points)
         if is_static:
             self._add_ignore_constraint(
                 this="static_" + _POLYGON_NAMES[n],
