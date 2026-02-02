@@ -104,16 +104,17 @@ def ball_fall_phyjax2d(
     return duration
 
 
+DEFAULT_COUNTS = [1000]
+
+
 def main(
-    count_min: int = 1000,
-    count_max: int = 100000,
-    count_interval: int = 1000,
+    counts: list[int] = DEFAULT_COUNTS,
     debug_vis: bool = False,
     filename: Path = Path("bench.csv"),
 ) -> None:
     results = []
 
-    for count in [x for x in range(count_min, count_max + 1, count_interval)]:
+    for count in counts:
         duration = ball_fall_phyjax2d(count, debug_vis)
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()
