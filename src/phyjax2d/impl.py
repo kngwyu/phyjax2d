@@ -854,7 +854,6 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
 }
 
 
-# TODO: pretty print
 @chex.dataclass
 class Space:
     gravity: jax.Array
@@ -997,6 +996,27 @@ class Space:
 
     def zeros_state(self) -> StateDict:
         return self.shaped.zeros_state()
+
+    def __repr__(self) -> str:
+        field_info = dataclasses.fields(self)
+        # Skip _field
+        attrs = [
+            f"{f.name}={getattr(self, f.name)!r}"
+            for f in field_info
+            if not f.name.startswith("_")
+        ]
+        return f"Space({', '.join(attrs)})"
+
+    def __str__(self) -> str:
+        lines = [
+            "Physics Space Configuration",
+            f"  Gravity: {self.gravity}",
+            f"  Timestep (dt): {self.dt}",
+            f"  Damping: Linear={self.linear_damping}, Angular={self.angular_damping}",
+            f"  Solver Iterations: Velocity={self.n_velocity_iter}, Position={self.n_position_iter}",
+            f"  Safety: Linear Slop={self.linear_slop}, Max Velocity={self.max_velocity}"
+        ]
+        return "\n".join(lines)
 
 
 def update_velocity(space: Space, shape: Shape, state: State) -> State:
