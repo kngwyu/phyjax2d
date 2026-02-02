@@ -861,6 +861,7 @@ class Space:
     dt: float = 0.1
     linear_damping: float = 0.95
     angular_damping: float = 0.95
+    jacobi_damping: float = 1.0
     bias_factor: float = 0.2
     n_velocity_iter: int = 6
     n_position_iter: int = 2
@@ -1014,7 +1015,7 @@ class Space:
             f"  Timestep (dt): {self.dt}",
             f"  Damping: Linear={self.linear_damping}, Angular={self.angular_damping}",
             f"  Solver Iterations: Velocity={self.n_velocity_iter}, Position={self.n_position_iter}",
-            f"  Safety: Linear Slop={self.linear_slop}, Max Velocity={self.max_velocity}"
+            f"  Safety: Linear Slop={self.linear_slop}, Max Velocity={self.max_velocity}",
         ]
         return "\n".join(lines)
 
@@ -1282,8 +1283,13 @@ def solve_constraints(
     """Resolve collisions by Sequential Impulse method"""
     idx1, idx2 = space._ci_total.index1, space._ci_total.index2
 
-    def gather(a: jax.Array, b: jax.Array, orig: jax.Array) -> jax.Array:
-        return orig.at[idx1].add(a).at[idx2].add(b)
+    def gather(
+        a: jax.Array,
+        b: jax.Array,
+        orig: jax.Array,
+        damping: float = 1.0,
+    ) -> jax.Array:
+        return orig.at[idx1].add(a * damping).at[idx2].add(b * damping)
 
     p1, p2 = p.get_slice(idx1), p.get_slice(idx2)
     v1, v2 = v.get_slice(idx1), v.get_slice(idx2)
@@ -1317,7 +1323,7 @@ def solve_constraints(
         (v.into_axy(), solver),
     )
     bv1, bv2 = apply_bounce(contact, helper, solver)
-    v_axy = gather(bv1, bv2, v_axy)
+    v_axy = gather(bv1, bv2, v_axy, damping=space.jacobi_damping)
 
     def pstep(
         _: int,
