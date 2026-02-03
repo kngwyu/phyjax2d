@@ -1,4 +1,5 @@
 import csv
+import functools
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import typer
 
-from phyjax2d import SpaceBuilder, Vec2d, step
+from phyjax2d import SpaceBuilder, Vec2d, nstep, step
 from phyjax2d.moderngl_vis import MglVisualizer
 
 
@@ -23,11 +24,12 @@ def ball_fall_phyjax2d(
     builder = SpaceBuilder(
         gravity=(0.0, -900.0),
         dt=0.002,
-        jacobi_damping=0.5,
+        viscous_damping=0.6,
         n_velocity_iter=10,
-        n_position_iter=2,
-        bias_factor=0.02,
+        n_position_iter=1,
+        bias_factor=0.1,
         bounce_threshold=4,
+        allowed_penetration=0.01,
     )
 
     for _ in range(n_balls):
@@ -81,27 +83,20 @@ def ball_fall_phyjax2d(
             title=f"Phyjax2D Debug: {n_balls} balls",
             figsize=(600, 1000),
         )
-
-    # 4. Simulation Loop
-    jit_step = jax.jit(step, static_argnums=(0,))
-
-    # Warm-up (Optional: only if you want to exclude first-run JIT from benchmark)
-    sd, _, _ = jit_step(space, sd, vs)
-
-    start = datetime.now()
-    for _ in range(n_iter):
-        sd, _, _ = jit_step(space, sd, vs)
-
-        if visualizer is not None:
+        jit_step = jax.jit(step, static_argnums=(0,))
+        start = datetime.now()
+        for _ in range(n_iter):
+            sd, _, _ = jit_step(space, sd, vs)
             visualizer.render(state=sd)
             visualizer.show()
-
-    duration = datetime.now() - start
-
-    if visualizer is not None:
         visualizer.close()
-
-    return duration
+        return datetime.now() - start
+    else:
+        nstep(100, 0.6, space, sd, vs)
+        start = datetime.now()
+        for _ in range(n_iter // 100):
+            sd, _, _ = nstep(100, 0.6, space, sd, vs)
+        return datetime.now() - start
 
 
 DEFAULT_COUNTS = [1000]

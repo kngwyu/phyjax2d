@@ -195,7 +195,7 @@ class SpaceBuilder:
     dt: float = 0.1
     linear_damping: float = 0.9
     angular_damping: float = 0.9
-    jacobi_damping: float = 1.0
+    viscous_damping: float = 1.0
     bias_factor: float = 0.2
     n_velocity_iter: int = 6
     n_position_iter: int = 2
@@ -531,7 +531,7 @@ class SpaceBuilder:
             shaped=shaped,
             linear_damping=linear_damping,
             angular_damping=angular_damping,
-            jacobi_damping=self.jacobi_damping,
+            viscous_damping=self.viscous_damping,
             bias_factor=self.bias_factor,
             n_velocity_iter=self.n_velocity_iter,
             n_position_iter=self.n_position_iter,

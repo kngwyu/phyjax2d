@@ -11,9 +11,12 @@ from phyjax2d.impl import (
     StateDict,
     Velocity,
     VelocitySolver,
+    XpbdSolver,
     empty,
     get_relative_angle,
+    nstep,
     step,
+    step_xpbd,
 )
 from phyjax2d.raycast import (
     Raycast,

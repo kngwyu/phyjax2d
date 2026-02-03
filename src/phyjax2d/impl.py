@@ -469,6 +469,45 @@ def _polygon_to_circle_impl(
     )
 
 
+@jax.vmap
+def _polygon_to_polygon_impl(
+    a: Polygon,
+    b: Polygon,
+    a_pos: Position,
+    b_pos: Position,
+    isactive: jax.Array,
+) -> Contact:
+    # TODO: Not the best for SI?
+    def find_max_separation(poly_a, pos_a, poly_b, pos_b):
+        b_pts_in_a = jax.vmap(pos_a.inv_transform)(
+            jax.vmap(pos_b.transform)(poly_b.points)
+        )
+        sep_matrix = jax.vmap(lambda n, p: jnp.min(jnp.dot(b_pts_in_a - p, n)))(
+            poly_a.normals, poly_a.points
+        )
+        max_sep = jnp.max(sep_matrix)
+        best_idx = jnp.argmax(sep_matrix)
+        return max_sep, best_idx
+
+    # 1. Check for separation along A's normals and B's normals
+    sep_a, idx_a = find_max_separation(a, a_pos, b, b_pos)
+    sep_b, idx_b = find_max_separation(b, b_pos, a, a_pos)
+    # 2. Determine which polygon provides the axis of minimum penetration
+    is_a_best = sep_a > sep_b
+    penetration = -jnp.where(is_a_best, sep_a, sep_b)
+    raw_normal = jnp.where(is_a_best, a.normals[idx_a], -b.normals[idx_b])
+    world_normal = a_pos.rotate(raw_normal) if is_a_best else b_pos.rotate(raw_normal)
+    # 3. Simple Contact Point Generation (Midpoint of overlap)
+    pos_world = (a_pos.xy + b_pos.xy) * 0.5
+    return Contact(
+        pos=pos_world,
+        normal=world_normal,
+        penetration=jnp.where(isactive, penetration, -1.0),
+        elasticity=(a.elasticity + b.elasticity) * 0.5,
+        friction=(a.friction + b.friction) * 0.5,
+    )
+
+
 _ALL_SHAPES = [
     "circle",
     "static_circle",
@@ -832,7 +871,19 @@ def _polygon_to_polygon(
     key1: str,
     key2: str,
 ) -> Contact:
-    assert False
+    poly1 = stated[key1]  # type: ignore
+    poly2 = stated[key2]  # type: ignore
+
+    return _polygon_to_polygon_impl(
+        ci.shape1,
+        ci.shape2,
+        jax.tree_util.tree_map(lambda arr: arr[ci.index1], poly1.p),
+        jax.tree_util.tree_map(lambda arr: arr[ci.index2], poly2.p),
+        jnp.logical_and(
+            poly1.is_active[ci.index1],
+            poly2.is_active[ci.index2],
+        ),
+    )
 
 
 _CONTACT_FN = Callable[[ContactIndices, StateDict], Contact]
@@ -846,11 +897,11 @@ _CONTACT_FUNCTIONS: dict[tuple[str, str], _CONTACT_FN] = {
         _polygon_to_circle,
         key="static_triangle",
     ),
-    # ("triangle", "triangle"): functools.partial(
-    #     _polygon_to_polygon,
-    #     key1="triangle",
-    #     key2="triangle",
-    # ),
+    ("triangle", "triangle"): functools.partial(
+        _polygon_to_polygon,
+        key1="triangle",
+        key2="triangle",
+    ),
 }
 
 
@@ -861,7 +912,7 @@ class Space:
     dt: float = 0.1
     linear_damping: float = 0.95
     angular_damping: float = 0.95
-    jacobi_damping: float = 1.0
+    viscous_damping: float = 1.0
     bias_factor: float = 0.2
     n_velocity_iter: int = 6
     n_position_iter: int = 2
@@ -992,6 +1043,14 @@ class Space:
             v2=jnp.zeros((n, 3)),
             pn=jnp.zeros(n),
             pt=jnp.zeros(n),
+            contact=jnp.zeros(n, dtype=bool),
+        )
+
+    def init_xpbd_solver(self) -> XpbdSolver:
+        n = sum(self._n_contacts.values())
+        return XpbdSolver(
+            lambda_n=jnp.zeros(n),
+            lambda_t=jnp.zeros(n),
             contact=jnp.zeros(n, dtype=bool),
         )
 
@@ -1138,8 +1197,9 @@ def _rv_a2b(a: jax.Array, ra: jax.Array, b: jax.Array, rb: jax.Array):
     return Velocity.from_axy(b).rv(rb) - Velocity.from_axy(a).rv(ra)
 
 
-@jax.vmap
+@functools.partial(jax.vmap, in_axes=(None, 0, 0, 0))
 def apply_velocity_normal(
+    viscous_damping: float,
     contact: Contact,
     helper: ContactHelper,
     solver: VelocitySolver,
@@ -1168,7 +1228,7 @@ def apply_velocity_normal(
     # Compute Relative velocity again
     dv = _rv_a2b(solver.v1 + dvt1, helper.r1, solver.v2 + dvt2, helper.r2)
     vn = _vmap_dot(dv, contact.normal)
-    dpn = helper.mass_normal * (-vn + helper.v_bias)
+    dpn = helper.mass_normal * (-vn + helper.v_bias) * viscous_damping
     # Accumulate and clamp impulse
     pn = jnp.clip(solver.pn + dpn, min=0.0)
     dpn_clamped = contact.normal * (pn - solver.pn)
@@ -1283,13 +1343,8 @@ def solve_constraints(
     """Resolve collisions by Sequential Impulse method"""
     idx1, idx2 = space._ci_total.index1, space._ci_total.index2
 
-    def gather(
-        a: jax.Array,
-        b: jax.Array,
-        orig: jax.Array,
-        damping: float = 1.0,
-    ) -> jax.Array:
-        return orig.at[idx1].add(a * damping).at[idx2].add(b * damping)
+    def gather(a: jax.Array, b: jax.Array, orig: jax.Array) -> jax.Array:
+        return orig.at[idx1].add(a).at[idx2].add(b)
 
     p1, p2 = p.get_slice(idx1), p.get_slice(idx2)
     v1, v2 = v.get_slice(idx1), v.get_slice(idx2)
@@ -1312,7 +1367,12 @@ def solve_constraints(
         vs: tuple[jax.Array, VelocitySolver],
     ) -> tuple[jax.Array, VelocitySolver]:
         v_i, solver_i = vs
-        solver_i1 = apply_velocity_normal(contact, helper, solver_i)
+        solver_i1 = apply_velocity_normal(
+            space.viscous_damping,
+            contact,
+            helper,
+            solver_i,
+        )
         v_i1 = gather(solver_i1.v1, solver_i1.v2, v_i)
         return v_i1, replace(solver_i1, v1=v_i1[idx1], v2=v_i1[idx2])
 
@@ -1323,7 +1383,7 @@ def solve_constraints(
         (v.into_axy(), solver),
     )
     bv1, bv2 = apply_bounce(contact, helper, solver)
-    v_axy = gather(bv1, bv2, v_axy, damping=space.jacobi_damping)
+    v_axy = gather(bv1, bv2, v_axy)
 
     def pstep(
         _: int,
@@ -1373,3 +1433,182 @@ def step(
     )
     state = update_position(space, replace(state, v=v, p=p))
     return stated.update(state), solver, contact
+
+
+@functools.partial(jax.jit, static_argnums=(0, 1, 2))
+def nstep(
+    n: int,
+    warmstart_scale: float,
+    space: Space,
+    stated: StateDict,
+    solver: VelocitySolver,
+) -> tuple[StateDict, VelocitySolver, jax.Array]:
+    def body(
+        stated_and_solver: tuple[StateDict, VelocitySolver],
+        _: jax.Array,
+    ) -> tuple[tuple[StateDict, VelocitySolver], jax.Array]:
+        state, solver, contact = step(space, *stated_and_solver)
+        solver = replace(solver, pn=solver.pn * warmstart_scale)
+        return (state, solver), contact.penetration >= 0.0
+
+    (state, solver), contacts = jax.lax.scan(body, (stated, solver), jnp.zeros(n))
+    return state, solver, contacts
+
+
+# XPBD
+
+
+@chex.dataclass
+class XpbdSolver(PyTreeOps):
+    """
+    Solver state for XPBD, tracking position-based Lagrange multipliers.
+    """
+
+    lambda_n: jax.Array  # Normal multipliers (N_contacts,)
+    lambda_t: jax.Array  # Tangent (friction) multipliers (N_contacts,)
+    contact: jax.Array  # Boolean mask of active contacts
+
+    def update(self, new_contact: jax.Array) -> Self:
+        continuing_contact = jnp.logical_and(self.contact, new_contact)
+        ln = jnp.where(continuing_contact, self.lambda_n, 0.0)
+        lt = jnp.where(continuing_contact, self.lambda_t, 0.0)
+        return replace(self, lambda_n=ln, lambda_t=lt, contact=new_contact)
+
+
+@jax.vmap
+def xpbd_position_constraint(
+    p1_axy: jax.Array,
+    p2_axy: jax.Array,
+    contact: Contact,
+    helper: ContactHelper,
+    lambda_n: jax.Array,  # Current total Lagrange multiplier
+    dt: float,
+    compliance: float = 1e-6,  # The 'alpha' term
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """
+    XPBD version of position correction with compliance.
+    """
+    p1, p2 = Position.from_axy(p1_axy), Position.from_axy(p2_axy)
+
+    # 1. Calculate Constraint Function C(x)
+    r1 = p1.rotate(helper.local_anchor1)
+    r2 = p2.rotate(helper.local_anchor2)
+    # Current separation (negative means penetration)
+    separation = jnp.dot(p2.xy + r2 - (p1.xy + r1), contact.normal)
+    c_x = separation - contact.penetration
+
+    # 2. Regularization (Compliance)
+    # tilde_alpha = alpha / dt^2
+    tilde_alpha = compliance / (dt**2)
+
+    # 3. Calculate Effective Mass (K)
+    kn1 = _effective_mass(helper.inv_mass1, helper.inv_moment1, r1, contact.normal)
+    kn2 = _effective_mass(helper.inv_mass2, helper.inv_moment2, r2, contact.normal)
+    k = kn1 + kn2
+
+    # 4. Calculate Delta Lambda
+    # The multiplier update is regulated by tilde_alpha
+    d_lambda = (-c_x - tilde_alpha * lambda_n) / (k + tilde_alpha)
+    new_lambda_n = jnp.fmax(
+        0.0, lambda_n + d_lambda
+    )  # Inequality constraint (push only)
+
+    # Recalculate d_lambda based on the clamped multiplier
+    d_lambda_clamped = new_lambda_n - lambda_n
+
+    # 5. Calculate Displacement
+    pn = d_lambda_clamped * contact.normal
+    dp1 = _axy(
+        angle=-helper.inv_moment1 * jnp.cross(r1, pn),
+        xy=-pn * helper.inv_mass1,
+    )
+    dp2 = _axy(
+        angle=helper.inv_moment2 * jnp.cross(r2, pn),
+        xy=pn * helper.inv_mass2,
+    )
+
+    return dp1, dp2, new_lambda_n
+
+
+def solve_constraints_xpbd(
+    space: Space,
+    p_predicted: Position,
+    v_integrated: Velocity,
+    contact: Contact,
+    solver: XpbdSolver,  # Inject the solver state here
+) -> tuple[Position, XpbdSolver]:
+    idx1, idx2 = space._ci_total.index1, space._ci_total.index2
+
+    # 1. Initialize geometry helper
+    p1, p2 = p_predicted.get_slice(idx1), p_predicted.get_slice(idx2)
+    v1, v2 = v_integrated.get_slice(idx1), v_integrated.get_slice(idx2)
+    helper = init_contact_helper(
+        space, contact, space._ci_total.shape1, space._ci_total.shape2, p1, p2, v1, v2
+    )
+
+    # 2. Iteration Loop
+    def xpbd_step(
+        i: int, val: tuple[jax.Array, XpbdSolver]
+    ) -> tuple[jax.Array, XpbdSolver]:
+        curr_p_axy, curr_sol = val
+
+        dp1, dp2, next_ln = xpbd_position_constraint(
+            curr_p_axy[idx1],
+            curr_p_axy[idx2],
+            contact,
+            helper,
+            curr_sol.lambda_n,
+            space.dt,
+            compliance=1e-6,
+        )
+
+        # We gather displacements and update the multiplier state
+        next_p_axy = curr_p_axy.at[idx1].add(dp1).at[idx2].add(dp2)
+        next_sol = replace(curr_sol, lambda_n=next_ln)
+
+        return next_p_axy, next_sol
+
+    final_p_axy, final_solver = jax.lax.fori_loop(
+        0,
+        space.n_position_iter,
+        xpbd_step,
+        (p_predicted.into_axy(), solver),
+    )
+
+    return Position.from_axy(final_p_axy), final_solver
+
+
+def step_xpbd(
+    space: Space,
+    stated: StateDict,
+    solver: XpbdSolver,
+) -> tuple[StateDict, XpbdSolver, Contact]:
+    """
+    Performs a single simulation step using the XPBD algorithm.
+    """
+    state_old = stated.concat()
+    state_vel_integrated = update_velocity(space, space.shaped.concat(), state_old)
+    state_predicted = update_position(space, state_vel_integrated)
+    contact = space.check_contacts(stated.update(state_predicted))
+    p_final, solver = solve_constraints_xpbd(
+        space,
+        state_predicted.p,
+        state_vel_integrated.v,
+        contact,
+        solver,
+    )
+    v_final_xy = (p_final.xy - state_old.p.xy) / space.dt
+    angle_diff = (p_final.angle - state_old.p.angle + jnp.pi) % (2 * jnp.pi) - jnp.pi
+    v_final_ang = angle_diff / space.dt
+    v_final = Velocity(
+        xy=v_final_xy * space.linear_damping,
+        angle=v_final_ang * space.angular_damping,
+    )
+
+    state_final = replace(
+        state_predicted,
+        p=p_final,
+        v=v_final,
+        f=state_old.f.zeros_like(),  # Clear forces for next frame
+    )
+    return stated.update(state_final), solver, contact

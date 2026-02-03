@@ -13,6 +13,7 @@ def ball_fall(n_balls: int, debug_vis: bool, n_iter: int = 1000) -> timedelta:
     space = pymunk.Space()
     # 1. Flip Gravity: Positive Y pulls "down" in PyGame coordinates
     space.gravity = (0, 900)
+    space.iterations = 10
 
     static_body = space.static_body
     # 2. Invert Container: Floor is now at Y=800, walls go up toward Y=50

@@ -58,5 +58,5 @@ dev-dependencies = [
     "ipython >= 8.0",
     "pytest >= 8.3.3",
     "pymunk >= 6.0",
-    "typer >= 0.12",
+    "typer >= 0.21.1",
 ]
