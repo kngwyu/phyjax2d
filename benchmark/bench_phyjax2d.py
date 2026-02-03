@@ -64,7 +64,7 @@ def ball_fall_phyjax2d(
     # 2. Initialize State
     rng = np.random.default_rng()
     x_coords = rng.uniform(100, 800, n_balls)
-    y_coords = rng.uniform(50, 400, n_balls)
+    y_coords = rng.uniform(150, 500, n_balls)
     pos_array = jnp.stack([jnp.array(x_coords), jnp.array(y_coords)], axis=-1)
 
     sd = space.zeros_state().nested_replace("circle.p.xy", pos_array)
@@ -75,12 +75,12 @@ def ball_fall_phyjax2d(
     if debug_vis:
         # We define the range based on the window size/container
         visualizer = MglVisualizer(
-            x_range=600.0,
-            y_range=1000.0,
+            x_range=900.0,
+            y_range=600.0,
             space=space,
             stated=sd,
             title=f"Phyjax2D Debug: {n_balls} balls",
-            figsize=(600, 900),
+            figsize=(900, 600),
         )
         jit_step = jax.jit(step, static_argnums=(0,))
         start = datetime.now()
@@ -91,16 +91,17 @@ def ball_fall_phyjax2d(
         visualizer.close()
         return datetime.now() - start
     else:
+
         @jax.jit
-        def step(sd, vs):
+        def n_step_fixed(sd, vs):
             sd, vs, _ = nstep(5, 0.6, space, sd, vs)
             return sd, vs.replace(pn=vs.pn * 0.6)
 
-        step(sd, vs)
+        n_step_fixed(sd, vs)
 
         start = datetime.now()
         for _ in range(n_iter // 5):
-            sd, vs = step(sd, vs)
+            sd, vs = n_step_fixed(sd, vs)
         return datetime.now() - start
 
 
