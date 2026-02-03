@@ -91,10 +91,16 @@ def ball_fall_phyjax2d(
         visualizer.close()
         return datetime.now() - start
     else:
-        nstep(100, 0.6, space, sd, vs)
+        @jax.jit
+        def step(sd, vs):
+            sd, vs, _ = nstep(5, 0.6, space, sd, vs)
+            return sd, vs.replace(pn=vs.pn * 0.6)
+
+        step(sd, vs)
+
         start = datetime.now()
-        for _ in range(n_iter // 100):
-            sd, _, _ = nstep(100, 0.6, space, sd, vs)
+        for _ in range(n_iter // 5):
+            sd, vs = step(sd, vs)
         return datetime.now() - start
 
 
