@@ -42,19 +42,19 @@ def ball_fall_phyjax2d(
     # Container setup
     builder.add_segment(
         p1=Vec2d(50.0, 50.0),
-        p2=Vec2d(550.0, 50.0),
+        p2=Vec2d(850.0, 50.0),
         elasticity=0.4,
         friction=0.5,
     )
     builder.add_segment(
         p1=Vec2d(50.0, 50.0),
-        p2=Vec2d(50.0, 800.0),
+        p2=Vec2d(50.0, 550.0),
         elasticity=0.4,
         friction=0.5,
     )
     builder.add_segment(
-        p1=Vec2d(550.0, 50.0),
-        p2=Vec2d(550.0, 800.0),
+        p1=Vec2d(850.0, 50.0),
+        p2=Vec2d(850.0, 550.0),
         elasticity=0.4,
         friction=0.5,
     )
@@ -63,8 +63,8 @@ def ball_fall_phyjax2d(
 
     # 2. Initialize State
     rng = np.random.default_rng()
-    x_coords = rng.uniform(70, 530, n_balls)
-    y_coords = rng.uniform(400, 1000, n_balls)
+    x_coords = rng.uniform(100, 800, n_balls)
+    y_coords = rng.uniform(50, 400, n_balls)
     pos_array = jnp.stack([jnp.array(x_coords), jnp.array(y_coords)], axis=-1)
 
     sd = space.zeros_state().nested_replace("circle.p.xy", pos_array)
@@ -80,7 +80,7 @@ def ball_fall_phyjax2d(
             space=space,
             stated=sd,
             title=f"Phyjax2D Debug: {n_balls} balls",
-            figsize=(600, 1000),
+            figsize=(600, 900),
         )
         jit_step = jax.jit(step, static_argnums=(0,))
         start = datetime.now()

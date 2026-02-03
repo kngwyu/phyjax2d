@@ -18,9 +18,9 @@ def ball_fall(n_balls: int, debug_vis: bool, n_iter: int = 1000) -> timedelta:
     static_body = space.static_body
     # 2. Invert Container: Floor is now at Y=800, walls go up toward Y=50
     segments = [
-        pymunk.Segment(static_body, (50, 800), (550, 800), 5),  # Floor (Bottom)
-        pymunk.Segment(static_body, (50, 800), (50, 50), 5),  # Left Wall
-        pymunk.Segment(static_body, (550, 800), (550, 50), 5),  # Right Wall
+        pymunk.Segment(static_body, (50, 550), (850, 550), 5),  # Floor (Bottom)
+        pymunk.Segment(static_body, (50, 550), (50, 50), 5),  # Left Wall
+        pymunk.Segment(static_body, (850, 550), (850, 50), 5),  # Right Wall
     ]
     for seg in segments:
         seg.elasticity = 0.4
@@ -33,7 +33,7 @@ def ball_fall(n_balls: int, debug_vis: bool, n_iter: int = 1000) -> timedelta:
 
     rng = np.random.default_rng()
     # 3. Invert Spawn: Balls start near the top (Y=100 to 400)
-    x_coords = rng.uniform(70, 530, n_balls)
+    x_coords = rng.uniform(100, 800, n_balls)
     y_coords = rng.uniform(50, 400, n_balls)
 
     for i in range(n_balls):
@@ -46,7 +46,7 @@ def ball_fall(n_balls: int, debug_vis: bool, n_iter: int = 1000) -> timedelta:
 
     if debug_vis:
         pygame.init()
-        screen = pygame.display.set_mode((600, 850))
+        screen = pygame.display.set_mode((900, 600))
         pygame.display.set_caption(f"Inverted Gravity Benchmark: {n_balls} balls")
         draw_options = pymunk.pygame_util.DrawOptions(screen)
     else:
