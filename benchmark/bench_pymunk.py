@@ -9,11 +9,15 @@ import pymunk.pygame_util
 import typer
 
 
-def ball_fall(n_balls: int, debug_vis: bool, n_iter: int = 1000) -> timedelta:
+def ball_fall(
+    n_balls: int,
+    debug_vis: bool,
+    n_iter: int = 1000,
+) -> timedelta:
     space = pymunk.Space()
     # 1. Flip Gravity: Positive Y pulls "down" in PyGame coordinates
     space.gravity = (0, 900)
-    space.iterations = 10
+    space.iterations = 4
 
     static_body = space.static_body
     # 2. Invert Container: Floor is now at Y=800, walls go up toward Y=50
@@ -79,12 +83,18 @@ DEFAULT_COUNTS = [1000]
 def main(
     counts: list[int] = DEFAULT_COUNTS,
     debug_vis: bool = False,
+    n_iter: int = 1000,
+    freefall: bool = False,
     filename: Path = Path("bench.csv"),
 ) -> None:
     results = []
 
     for count in counts:
-        duration = ball_fall(count, debug_vis)
+        duration = ball_fall(
+            count,
+            debug_vis,
+            n_iter=n_iter,
+        )
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()
         results.append((count, seconds))

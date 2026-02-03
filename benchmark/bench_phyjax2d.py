@@ -24,11 +24,11 @@ def ball_fall_phyjax2d(
         gravity=(0.0, -900.0),
         dt=0.002,
         viscous_damping=0.6,
-        n_velocity_iter=10,
+        n_velocity_iter=4,
         n_position_iter=1,
         bias_factor=0.1,
         bounce_threshold=4,
-        allowed_penetration=0.01,
+        allowed_penetration=0.1,
     )
 
     for _ in range(n_balls):
@@ -111,12 +111,17 @@ DEFAULT_COUNTS = [1000]
 def main(
     counts: list[int] = DEFAULT_COUNTS,
     debug_vis: bool = False,
+    n_iter: int = 1000,
     filename: Path = Path("bench.csv"),
 ) -> None:
     results = []
 
     for count in counts:
-        duration = ball_fall_phyjax2d(count, debug_vis)
+        duration = ball_fall_phyjax2d(
+            count,
+            debug_vis,
+            n_iter=n_iter,
+        )
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()
         results.append((count, seconds))
