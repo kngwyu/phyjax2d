@@ -15,6 +15,7 @@ from phyjax2d.impl import (
     empty,
     get_relative_angle,
     nstep,
+    nstep_xpbd,
     step,
     step_xpbd,
 )

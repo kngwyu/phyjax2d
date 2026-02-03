@@ -7,7 +7,9 @@ import jax.numpy as jnp
 import numpy as np
 import typer
 
-from phyjax2d import SpaceBuilder, Vec2d, nstep, step
+from phyjax2d import SpaceBuilder, Vec2d
+from phyjax2d import nstep_xpbd as nstep
+from phyjax2d import step_xpbd as step
 from phyjax2d.moderngl_vis import MglVisualizer
 
 
@@ -22,7 +24,7 @@ def ball_fall_phyjax2d(
     """
     builder = SpaceBuilder(
         gravity=(0.0, -900.0),
-        dt=0.01,
+        dt=0.002,
         viscous_damping=0.6,
         n_velocity_iter=4,
         n_position_iter=1,
@@ -68,7 +70,7 @@ def ball_fall_phyjax2d(
     pos_array = jnp.stack([jnp.array(x_coords), jnp.array(y_coords)], axis=-1)
 
     sd = space.zeros_state().nested_replace("circle.p.xy", pos_array)
-    vs = space.init_solver()
+    vs = space.init_xpbd_solver()
 
     # 3. Initialize Visualizer
     visualizer = None

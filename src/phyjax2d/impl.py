@@ -1475,15 +1475,15 @@ class XpbdSolver(PyTreeOps):
         return replace(self, lambda_n=ln, lambda_t=lt, contact=new_contact)
 
 
-@jax.vmap
+@functools.partial(jax.vmap, in_axes=(0, 0, 0, 0, 0, None, None))
 def xpbd_position_constraint(
     p1_axy: jax.Array,
     p2_axy: jax.Array,
     contact: Contact,
     helper: ContactHelper,
-    lambda_n: jax.Array,  # Current total Lagrange multiplier
+    lambda_n: jax.Array,
     dt: float,
-    compliance: float = 1e-6,  # The 'alpha' term
+    compliance: float,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """
     XPBD version of position correction with compliance.
@@ -1543,12 +1543,20 @@ def solve_constraints_xpbd(
     p1, p2 = p_predicted.get_slice(idx1), p_predicted.get_slice(idx2)
     v1, v2 = v_integrated.get_slice(idx1), v_integrated.get_slice(idx2)
     helper = init_contact_helper(
-        space, contact, space._ci_total.shape1, space._ci_total.shape2, p1, p2, v1, v2
+        space,
+        contact,
+        space._ci_total.shape1,
+        space._ci_total.shape2,
+        p1,
+        p2,
+        v1,
+        v2,
     )
 
     # 2. Iteration Loop
     def xpbd_step(
-        i: int, val: tuple[jax.Array, XpbdSolver]
+        _: int,
+        val: tuple[jax.Array, XpbdSolver],
     ) -> tuple[jax.Array, XpbdSolver]:
         curr_p_axy, curr_sol = val
 
@@ -1559,7 +1567,7 @@ def solve_constraints_xpbd(
             helper,
             curr_sol.lambda_n,
             space.dt,
-            compliance=1e-6,
+            1e-6,
         )
 
         # We gather displacements and update the multiplier state
@@ -1612,3 +1620,21 @@ def step_xpbd(
         f=state_old.f.zeros_like(),  # Clear forces for next frame
     )
     return stated.update(state_final), solver, contact
+
+
+@functools.partial(jax.jit, static_argnums=(0, 1))
+def nstep_xpbd(
+    n: int,
+    space: Space,
+    stated: StateDict,
+    solver: XpbdSolver,
+) -> tuple[StateDict, XpbdSolver, jax.Array]:
+    def body(
+        stated_and_solver: tuple[StateDict, XpbdSolver],
+        _: jax.Array,
+    ) -> tuple[tuple[StateDict, XpbdSolver], jax.Array]:
+        state, solver, contact = step_xpbd(space, *stated_and_solver)
+        return (state, solver), contact.penetration >= 0.0
+
+    (state, solver), contacts = jax.lax.scan(body, (stated, solver), jnp.zeros(n))
+    return state, solver, contacts
