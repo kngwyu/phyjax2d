@@ -15,8 +15,10 @@ from phyjax2d.impl import (
     _vmap_dot,
     normalize,
 )
+from phyjax2d.tree_utils import compact_pytree_repr
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Raycast:
     fraction: jax.Array

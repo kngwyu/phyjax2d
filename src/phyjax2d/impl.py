@@ -13,6 +13,8 @@ import chex
 import jax
 import jax.numpy as jnp
 
+from phyjax2d.tree_utils import compact_pytree_repr
+
 Self = Any
 T = TypeVar("T")
 TWO_PI = jnp.pi * 2
@@ -137,6 +139,7 @@ class _PositionLike(Protocol):
         return cls(angle=angle, xy=xy)
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Velocity(_PositionLike, PyTreeOps):
     angle: jax.Array  # Angular velocity (N,)
@@ -147,6 +150,7 @@ class Velocity(_PositionLike, PyTreeOps):
         return self.xy + _sv_cross(self.angle, r)
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Force(_PositionLike, PyTreeOps):
     angle: jax.Array  # Angular (torque) force (N,)
@@ -165,6 +169,7 @@ def _right_perp(xy: jax.Array) -> jax.Array:
     return jnp.concatenate((y, -x))
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Position(_PositionLike, PyTreeOps):
     angle: jax.Array  # Angular velocity (N, 1)
@@ -194,6 +199,7 @@ class Position(_PositionLike, PyTreeOps):
         return replace(self, xy=jnp.zeros_like(self.xy))
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Shape(PyTreeOps):
     mass: jax.Array
@@ -226,11 +232,13 @@ class Shape(PyTreeOps):
         )
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Circle(Shape):
     radius: jax.Array
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Capsule(Shape):
     point1: jax.Array
@@ -238,6 +246,7 @@ class Capsule(Shape):
     radius: jax.Array
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Segment(Shape):
     point1: jax.Array
@@ -247,6 +256,7 @@ class Segment(Shape):
     ghost2: jax.Array
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Polygon(Shape):
     points: jax.Array
@@ -255,6 +265,7 @@ class Polygon(Shape):
     centroid: jax.Array
 
 
+@compact_pytree_repr
 @chex.dataclass
 class Contact(PyTreeOps):
     pos: jax.Array
@@ -290,6 +301,7 @@ def _circle_to_circle_impl(
     )
 
 
+@compact_pytree_repr
 @chex.dataclass
 class ContactHelper:
     tangent: jax.Array
@@ -525,6 +537,7 @@ _ALL_SHAPES = [
 ]
 
 
+@compact_pytree_repr
 @chex.dataclass
 class State(PyTreeOps):
     p: Position
@@ -592,6 +605,7 @@ def _offset(sd: ShapeDict | StateDict, name: str) -> int:
     raise RuntimeError("Unreachable")
 
 
+@compact_pytree_repr
 @chex.dataclass
 class StateDict:
     circle: State = dataclasses.field(default_factory=State.empty)
@@ -650,6 +664,7 @@ class StateDict:
         return obj
 
 
+@compact_pytree_repr
 @chex.dataclass
 class ShapeDict:
     circle: Circle = dataclasses.field(default_factory=empty(Circle))
@@ -717,6 +732,7 @@ S1 = TypeVar("S1", bound=Shape)
 S2 = TypeVar("S2", bound=Shape)
 
 
+@compact_pytree_repr
 @chex.dataclass
 class ContactIndices(Generic[S1, S2]):
     shape1: S1
@@ -1159,6 +1175,7 @@ def init_contact_helper(
     )
 
 
+@compact_pytree_repr
 @chex.dataclass
 class VelocitySolver:
     v1: jax.Array
@@ -1280,6 +1297,7 @@ def apply_bounce(
     return jnp.where(allow_bounce, dv1, 0.0), jnp.where(allow_bounce, dv2, 0.0)
 
 
+@compact_pytree_repr
 @chex.dataclass
 class PositionSolver:
     p1: jax.Array
@@ -1458,6 +1476,7 @@ def nstep(
 # XPBD
 
 
+@compact_pytree_repr
 @chex.dataclass
 class XpbdSolver(PyTreeOps):
     """

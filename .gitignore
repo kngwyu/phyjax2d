@@ -10,3 +10,4 @@
 .virtual_documents/
 uv.lock
 pyrightconfig.json
+.python-version

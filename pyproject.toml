@@ -21,7 +21,6 @@ requires-python = ">= 3.10"
 dependencies = [
     "chex >= 0.1.86",
     "jax >= 0.4.26",
-    "pygame>=2.6.1",
 ]
 dynamic = ["version"]
 
@@ -59,4 +58,5 @@ dev-dependencies = [
     "pytest >= 8.3.3",
     "pymunk >= 6.0",
     "typer >= 0.21.1",
+    "pygame >= 2.6.1",
 ]
