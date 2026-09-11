@@ -34,4 +34,4 @@ from phyjax2d.utils import (
 )
 from phyjax2d.vec2d import Vec2d
 
-__version__ = "0.3.3"
+__version__ = "0.4.0"
