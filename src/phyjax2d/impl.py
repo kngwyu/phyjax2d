@@ -683,9 +683,7 @@ class ShapeDict:
 
     def concat(self) -> Shape:
         shapes = [
-            s.to_shape()
-            for s in self.values()
-            if s.batch_size() > 0  # type: ignore
+            s.to_shape() for s in self.values() if s.batch_size() > 0  # type: ignore
         ]
         return jax.tree_util.tree_map(
             lambda *args: jnp.concatenate(args, axis=0), *shapes
@@ -1197,17 +1195,21 @@ def apply_initial_impulse(
     helper: ContactHelper,
     solver: VelocitySolver,
 ) -> VelocitySolver:
-    """Warm starting by applying initial impulse"""
+    """Compute per-contact velocity deltas for warm starting."""
     p = helper.tangent * solver.pt + contact.normal * solver.pn
-    v1 = solver.v1 - _axy(
+    v1 = -_axy(
         angle=helper.inv_moment1 * jnp.cross(helper.r1, p),
         xy=p * helper.inv_mass1,
     )
-    v2 = solver.v2 + _axy(
+    v2 = _axy(
         angle=helper.inv_moment2 * jnp.cross(helper.r2, p),
         xy=p * helper.inv_mass2,
     )
-    return replace(solver, v1=v1, v2=v2)
+    return replace(
+        solver,
+        v1=jnp.where(solver.contact, v1, 0.0),
+        v2=jnp.where(solver.contact, v2, 0.0),
+    )
 
 
 def _rv_a2b(a: jax.Array, ra: jax.Array, b: jax.Array, rb: jax.Array):
@@ -1376,9 +1378,10 @@ def solve_constraints(
         v1,
         v2,
     )
-    # Warm up the velocity solver
-    solver = replace(solver, v1=v1.into_axy(), v2=v2.into_axy())
+    # Apply all cached impulses to body velocities before gathering contacts.
     solver = apply_initial_impulse(contact, helper, solver)
+    v_warm = gather(solver.v1, solver.v2, v.into_axy())
+    solver = replace(solver, v1=v_warm[idx1], v2=v_warm[idx2])
 
     def vstep(
         _: int,
@@ -1398,7 +1401,7 @@ def solve_constraints(
         0,
         space.n_velocity_iter,
         vstep,
-        (v.into_axy(), solver),
+        (v_warm, solver),
     )
     bv1, bv2 = apply_bounce(contact, helper, solver)
     v_axy = gather(bv1, bv2, v_axy)

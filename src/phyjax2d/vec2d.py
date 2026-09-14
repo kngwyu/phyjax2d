@@ -49,6 +49,7 @@ More examples::
     Vec2d(8.3, 6.2)
 
 """
+
 from __future__ import annotations
 
 __docformat__ = "reStructuredText"
