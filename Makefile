@@ -7,12 +7,12 @@ test:
 
 lint:
 	uvx ruff check
-	uvx black src/phyjax2d tests --check
+	uvx black --target-version=py312 src/phyjax2d tests --check
 	uvx isort src/phyjax2d tests --check
 
 
 format:
-	uvx black src/phyjax2d tests
+	uvx black --target-version=py312 src/phyjax2d tests
 	uvx isort src/phyjax2d tests
 
 
