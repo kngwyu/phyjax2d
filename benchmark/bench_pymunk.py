@@ -8,11 +8,17 @@ import pymunk
 import pymunk.pygame_util
 import typer
 
+if __package__:
+    from .video import video_path, video_writer
+else:
+    from video import video_path, video_writer
+
 
 def ball_fall(
     n_balls: int,
     debug_vis: bool,
     n_iter: int = 1000,
+    videopath: Path | None = None,
 ) -> timedelta:
     space = pymunk.Space()
     # 1. Flip Gravity: Positive Y pulls "down" in PyGame coordinates
@@ -53,26 +59,33 @@ def ball_fall(
         screen = pygame.display.set_mode((900, 600))
         pygame.display.set_caption(f"Inverted Gravity Benchmark: {n_balls} balls")
         draw_options = pymunk.pygame_util.DrawOptions(screen)
+    elif videopath is not None:
+        screen = pygame.Surface((900, 600))
+        draw_options = pymunk.pygame_util.DrawOptions(screen)
     else:
         screen = None
         draw_options = None
 
     start = datetime.now()
-    for _ in range(n_iter):
-        if screen is not None and draw_options is not None:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    return datetime.now() - start
+    try:
+        with video_writer(videopath, fps=500) as write_frame:
+            for _ in range(n_iter):
+                if debug_vis:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            return datetime.now() - start
 
-            screen.fill((255, 255, 255))
-            space.debug_draw(draw_options)
-            pygame.display.flip()
-
-        space.step(0.002)
-
-    if debug_vis:
-        pygame.quit()
+                space.step(0.002)
+                if screen is not None and draw_options is not None:
+                    screen.fill((255, 255, 255))
+                    space.debug_draw(draw_options)
+                    if write_frame is not None:
+                        write_frame(pygame.surfarray.array3d(screen).transpose(1, 0, 2))
+                    if debug_vis:
+                        pygame.display.flip()
+    finally:
+        if debug_vis:
+            pygame.quit()
 
     return datetime.now() - start
 
@@ -86,6 +99,7 @@ def main(
     n_iter: int = 1000,
     freefall: bool = False,
     filename: Path = Path("bench.csv"),
+    videopath: Path | None = None,
 ) -> None:
     results = []
 
@@ -94,6 +108,7 @@ def main(
             count,
             debug_vis,
             n_iter=n_iter,
+            videopath=video_path(videopath, count, len(counts) > 1),
         )
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()

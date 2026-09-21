@@ -10,15 +10,21 @@ import typer
 from phyjax2d import SpaceBuilder, Vec2d, nstep, step
 from phyjax2d.moderngl_vis import MglVisualizer
 
+if __package__:
+    from .video import video_path, video_writer
+else:
+    from video import video_path, video_writer
+
 
 def ball_fall_phyjax2d(
     n_balls: int,
     debug_vis: bool,
     n_iter: int = 1000,
+    videopath: Path | None = None,
 ) -> timedelta:
     """
     Simulates n_balls falling using phyjax2d.
-    If debug_vis is True, uses MglVisualizer for rendering.
+    Render to a window with debug_vis, or save frames with videopath.
     """
     builder = SpaceBuilder(
         gravity=(0.0, -900.0),
@@ -71,8 +77,7 @@ def ball_fall_phyjax2d(
     vs = space.init_solver()
 
     # 3. Initialize Visualizer
-    visualizer = None
-    if debug_vis:
+    if debug_vis or videopath is not None:
         # We define the range based on the window size/container
         visualizer = MglVisualizer(
             x_range=900.0,
@@ -81,14 +86,21 @@ def ball_fall_phyjax2d(
             stated=sd,
             title=f"Phyjax2D Debug: {n_balls} balls",
             figsize=(900, 600),
+            backend="pyglet" if debug_vis else "headless",
         )
         jit_step = jax.jit(step, static_argnums=(0,))
         start = datetime.now()
-        for _ in range(n_iter):
-            sd, _, _ = jit_step(space, sd, vs)
-            visualizer.render(state=sd)
-            visualizer.show()
-        visualizer.close()
+        try:
+            with video_writer(videopath, fps=100, pixel_format="rgba") as write_frame:
+                for _ in range(n_iter):
+                    sd, _, _ = jit_step(space, sd, vs)
+                    visualizer.render(state=sd)
+                    if write_frame is not None:
+                        write_frame(visualizer.get_image())
+                    if debug_vis:
+                        visualizer.show()
+        finally:
+            visualizer.close()
         return datetime.now() - start
     else:
 
@@ -113,6 +125,7 @@ def main(
     debug_vis: bool = False,
     n_iter: int = 1000,
     filename: Path = Path("bench.csv"),
+    videopath: Path | None = None,
 ) -> None:
     results = []
 
@@ -121,6 +134,7 @@ def main(
             count,
             debug_vis,
             n_iter=n_iter,
+            videopath=video_path(videopath, count, len(counts) > 1),
         )
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()

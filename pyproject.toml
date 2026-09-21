@@ -54,6 +54,7 @@ profile = "black"
 
 [dependency-groups]
 dev = [
+    "av >= 16.0.0",
     "ipython >= 8.0",
     "pytest >= 8.3.3",
     "pymunk >= 6.0",
