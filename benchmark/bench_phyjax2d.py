@@ -21,6 +21,9 @@ def ball_fall_phyjax2d(
     debug_vis: bool,
     n_iter: int = 1000,
     videopath: Path | None = None,
+    viscous_damping: float = 0.6,
+    allowed_penetration: float = 0.1,
+    bias_factor: float = 0.1,
 ) -> timedelta:
     """
     Simulates n_balls falling using phyjax2d.
@@ -29,12 +32,12 @@ def ball_fall_phyjax2d(
     builder = SpaceBuilder(
         gravity=(0.0, -900.0),
         dt=0.01,
-        viscous_damping=0.6,
+        viscous_damping=viscous_damping,
         n_velocity_iter=4,
         n_position_iter=1,
-        bias_factor=0.1,
+        bias_factor=bias_factor,
         bounce_threshold=4,
-        allowed_penetration=0.1,
+        allowed_penetration=allowed_penetration,
     )
 
     for _ in range(n_balls):
@@ -126,6 +129,9 @@ def main(
     n_iter: int = 1000,
     filename: Path = Path("bench.csv"),
     videopath: Path | None = None,
+    viscous_damping: float = 0.6,
+    allowed_penetration: float = 0.1,
+    bias_factor: float = 0.1,
 ) -> None:
     results = []
 
@@ -135,6 +141,9 @@ def main(
             debug_vis,
             n_iter=n_iter,
             videopath=video_path(videopath, count, len(counts) > 1),
+            viscous_damping=viscous_damping,
+            allowed_penetration=allowed_penetration,
+            bias_factor=bias_factor,
         )
         # Convert timedelta to total seconds as a float for the CSV
         seconds = duration.total_seconds()
